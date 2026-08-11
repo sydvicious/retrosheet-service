@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Syd Polk
+# SPDX-License-Identifier: BSD-3-Clause
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: retrosheet
+      POSTGRES_PASSWORD: retrosheet
+      POSTGRES_DB: retrosheet
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retrosheet -d retrosheet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://retrosheet:retrosheet@db:5432/retrosheet
+      PG_SCHEMA: retrosheet
+      PORT: "5050"
+      NODE_ENV: production
+    ports:
+      - "5050:5050"
+
+  # One-shot ETL. Behind the "etl" profile so `docker compose up` never runs it.
+  # Populate with:  docker compose run --rm loader
+  loader:
+    build: .
+    profiles: ["etl"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://retrosheet:retrosheet@db:5432/retrosheet
+      PG_SCHEMA: retrosheet
+      RETROSHEET_DIR: /data
+    volumes:
+      # Host Retrosheet data (defaults to ./data from scripts/fetch-data.sh),
+      # mounted read-only.
+      - "${RETROSHEET_DIR:-./data}:/data:ro"
+    command: ["node", "dist/etl/run.js"]
+
+volumes:
+  pgdata:
