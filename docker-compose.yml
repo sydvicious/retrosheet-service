@@ -30,6 +30,23 @@ services:
     ports:
       - "5050:5050"
 
+  # MCP server (read-only tools over the mart) — streamable HTTP transport,
+  # e.g. add http://<host>:5051/mcp as a remote MCP server (over Tailscale).
+  mcp:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://retrosheet:retrosheet@db:5432/retrosheet
+      PG_SCHEMA: retrosheet
+      MCP_TRANSPORT: http
+      MCP_PORT: "5051"
+      NODE_ENV: production
+    ports:
+      - "5051:5051"
+    command: ["node", "dist/mcp/index.js"]
+
   # One-shot ETL. Behind the "etl" profile so `docker compose up` never runs it.
   # Populate with:  docker compose run --rm loader
   loader:

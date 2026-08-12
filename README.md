@@ -18,10 +18,11 @@ Built in phases:
 - **Phase 2 — game / lineup / substitution / comment data** ✅ ~199k games with
   metadata, starting lineups, substitutions, comments, earned runs, adjustments,
   and verbatim `game_info` — parsed clean-room from the event files.
+- **Phase 6 — MCP server** ✅ read-only tools over the mart (stdio + streamable
+  HTTP) so Claude can query the data. (See *MCP server* below.)
 - **Phase 3 — play-by-play events** ⏳
 - **Phase 4 — daily stat lines** ⏳
-- **Phase 5 — web front-end**
-- **Phase 6 — MCP server** ⏳ (see the plan)
+- **Phase 5 — web front-end** ⏳
 
 ## Design notes
 
@@ -145,12 +146,47 @@ npm run etl                   # populate
 npm run dev                   # serve GraphQL at http://localhost:5050/
 ```
 
+## MCP server
+
+A read-only [Model Context Protocol](https://modelcontextprotocol.io) server lets
+Claude (and other MCP clients) query the mart directly. Tools: `describe_schema`,
+`query_sql` (guarded read-only SELECT), `search_people`, `get_person`, `get_team`,
+`get_roster`, `find_games`, `get_game`, `player_games`.
+
+**Remote (streamable HTTP, e.g. over Tailscale) — containerized:**
+
+```bash
+docker compose up -d mcp
+```
+
+Then add `http://<host>:5051/mcp` as a remote MCP server in your client.
+
+**Local (stdio) — e.g. Claude Desktop / Claude Code:** point the client at the
+built entry, with a `DATABASE_URL` for the Postgres mart:
+
+```json
+{
+  "mcpServers": {
+    "retrosheet": {
+      "command": "node",
+      "args": ["/path/to/retrosheet-service/dist/mcp/index.js"],
+      "env": { "DATABASE_URL": "postgres://retrosheet:retrosheet@localhost:5432/retrosheet" }
+    }
+  }
+}
+```
+
+Safety: the server only ever reads. `query_sql` runs inside a `READ ONLY`
+transaction with a statement timeout and a row cap, and rejects anything that
+isn't a `SELECT`/`WITH`.
+
 ## Development
 
 ```bash
 npm run typecheck   # tsc, no emit
 npm test            # vitest — parser unit tests against golden fixtures
 npm run build       # tsc -> dist/
+npm run mcp         # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
 ```
 
 ## Retrosheet terms of use

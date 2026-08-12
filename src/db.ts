@@ -6,8 +6,11 @@ import { Readable } from "node:stream";
 import { Pool, type PoolClient } from "pg";
 import { from as copyFrom } from "pg-copy-streams";
 
-export function makePool(connectionString: string): Pool {
-  return new Pool({ connectionString });
+export function makePool(connectionString: string, searchPath?: string): Pool {
+  return new Pool({
+    connectionString,
+    ...(searchPath ? { options: `-c search_path=${searchPath}` } : {}),
+  });
 }
 
 /** Apply a full .sql file (multi-statement) in one shot. Used to (re)create the mart. */
