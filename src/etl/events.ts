@@ -120,10 +120,16 @@ function gameRow(g: ParsedGame): (string | null)[] {
   ];
 }
 
+export interface LoadProgress {
+  plays: number;
+  label: string;
+}
+
 export async function loadEvents(
   client: PoolClient,
   root: string,
   seasons?: Set<string>,
+  progress?: LoadProgress,
 ): Promise<EventCounts> {
   const counts: EventCounts = {
     game: 0, game_info: 0, lineup_start: 0, substitution: 0,
@@ -184,11 +190,13 @@ export async function loadEvents(
       if (erRows.length) counts.earned_runs += await copyRows(client, "earned_runs", ["game_id", "player_id", "earned_runs"], erRows);
       if (adjRows.length) counts.game_adjustment += await copyRows(client, "game_adjustment", ["game_id", "seq", "adj_type", "field1", "field2"], adjRows);
       if (playRows.length) counts.play += await copyRows(client, "play", PLAY_COLS, playRows);
+
+      // Update shared progress after each file so the heartbeat clock advances.
+      if (progress) {
+        progress.plays = counts.play;
+        progress.label = `events ${year}`;
+      }
     }
-    // Per-season heartbeat so a long full load visibly progresses.
-    console.log(
-      `  events ${year}: games=${counts.game.toLocaleString()} plays=${counts.play.toLocaleString()}`,
-    );
   }
 
   return counts;

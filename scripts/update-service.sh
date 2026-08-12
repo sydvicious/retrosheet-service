@@ -11,7 +11,11 @@
 # faster and needs no restart. This uses the Retrosheet data already on disk;
 # run update-data.sh first if you also want fresher data.
 #
-# Run from the repo directory.
+# Run from the repo directory. On a REMOTE host, run this inside tmux or screen so
+# a dropped SSH connection can't abort the multi-minute load:
+#   tmux new -s retro './scripts/update-service.sh'   (reattach: tmux attach -t retro)
+# The loader prints an elapsed-time heartbeat every few seconds so you can tell
+# it is alive.
 set -euo pipefail
 
 echo "==> Pulling the latest code …"

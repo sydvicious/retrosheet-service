@@ -54,10 +54,20 @@ async function main(): Promise<void> {
       console.log("Recreating schema (drop + create) …");
       await pool.query(`DROP SCHEMA IF EXISTS ${cfg.schema} CASCADE`);
     }
-    console.log(`Ensuring schema (${schemaSqlPath}) …`);
+    console.log("Ensuring schema (creates any missing tables/indexes; drops nothing) …");
     await applySchemaFile(pool, schemaSqlPath);
+    console.log("Schema ready. Reloading data in one transaction …");
 
     const counts: Record<string, number> = {};
+    // Heartbeat clock: a line every 5s with elapsed time + live play count, so a
+    // stall is obvious in seconds rather than after the whole load.
+    const progress = { plays: 0, label: "preparing" };
+    const ticker = setInterval(() => {
+      const s = ((Date.now() - started) / 1000).toFixed(0);
+      console.log(`  … [${s}s] ${progress.label}: ${progress.plays.toLocaleString()} plays loaded`);
+    }, 5000);
+    ticker.unref();
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -66,6 +76,7 @@ async function main(): Promise<void> {
       await client.query(`TRUNCATE ${ALL_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
 
       const root = cfg.retrosheetDir;
+      progress.label = "reference/rosters/schedules";
       console.log("Loading reference, rosters, schedules …");
       // People first — coaches.player_id references it.
       counts.people = await loadPeople(client, root);
@@ -77,12 +88,13 @@ async function main(): Promise<void> {
       counts.roster = await loadRosters(client, root);
       counts.schedule = await loadSchedules(client, root);
 
+      progress.label = "events (play-by-play)";
       console.log(
         seasons
           ? `Loading events + play-by-play for seasons: ${[...seasons].sort().join(", ")} …`
           : "Loading events + play-by-play (the long part; ~150 seasons) …",
       );
-      const eventCounts = await loadEvents(client, root, seasons);
+      const eventCounts = await loadEvents(client, root, seasons, progress);
       Object.assign(counts, eventCounts);
 
       await client.query("COMMIT");
@@ -90,6 +102,7 @@ async function main(): Promise<void> {
       await client.query("ROLLBACK");
       throw err;
     } finally {
+      clearInterval(ticker);
       client.release();
     }
 

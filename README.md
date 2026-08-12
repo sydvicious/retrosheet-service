@@ -180,6 +180,15 @@ schema:
 ./scripts/update-service.sh
 ```
 
+The load prints an elapsed-time heartbeat every few seconds (`… [123s] events
+1994: 3.9M plays loaded`), so you can tell it's alive and spot a stall
+immediately. **On a remote host, run it inside `tmux`/`screen`** so a dropped SSH
+session can't abort the multi-minute load:
+
+```bash
+tmux new -s retro './scripts/update-service.sh'   # reattach later: tmux attach -t retro
+```
+
 Equivalent manual steps:
 
 ```bash
