@@ -20,7 +20,10 @@ Built in phases:
   and verbatim `game_info` — parsed clean-room from the event files.
 - **Phase 6 — MCP server** ✅ read-only tools over the mart (stdio + streamable
   HTTP) so Claude can query the data. (See *MCP server* below.)
-- **Phase 3 — play-by-play events** ⏳
+- **Phase 3 — play-by-play events** ✅ clean-room parser (~99.9% parity vs the
+  Chadwick oracle) + game replay → the `play` table (event type, outs, RBIs,
+  base state, pitcher, runner destinations). Ongoing refinement via
+  `npm run validate:plays`.
 - **Phase 4 — daily stat lines** ⏳
 - **Phase 5 — web front-end** ⏳
 
@@ -34,7 +37,8 @@ Built in phases:
 - **The database is a regenerable mart.** `sql/schema.sql` is idempotent; the
   loader ensures it, then **truncates + reloads every table inside one
   transaction**. So "update to a new Retrosheet release" is a hot refresh — the
-  running API keeps serving and needs no restart (see *Updating the data*).
+  running API keeps serving and needs no restart (see *Update an existing
+  installation*).
 - **Querying:** the auto-generated API exposes a rich `filter` argument
   (ranges, `in`/`notIn`, string `includesInsensitive`/`startsWith`/`like`,
   `isNull`, and `and`/`or`/`not`) via the connection-filter plugin, plus
@@ -51,14 +55,39 @@ host.
 
 ### Docker engine on macOS — Colima (no Docker Desktop required)
 
+**One command.** `./scripts/setup-macos.sh` installs Homebrew (if missing, which
+also brings the Xcode Command Line Tools → git), then git and the Docker packages
+below, wires the CLI plugins, and starts Colima. On a **bare Mac** (nothing
+installed yet) you can bootstrap it remotely — no clone needed first:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/sydvicious/retrosheet-service/main/scripts/setup-macos.sh)"
+```
+
+The manual steps follow for reference.
+
 `brew install docker` installs only the CLI *client*; macOS still needs a Linux
 VM to run the Docker *engine*. On a headless box (e.g. a Plex server) the clean,
 GUI-free route is **[Colima](https://github.com/abiosoft/colima)**:
 
+**Homebrew packages** for a deployment host (the Docker path needs only these):
+
+| package | why |
+|---|---|
+| `git` | clone/update this repo and the Retrosheet data (often already present via Xcode CLT) |
+| `colima` | the Linux VM that runs the Docker engine (no Docker Desktop) |
+| `docker` | the Docker CLI client |
+| `docker-buildx` | image builds — Compose v2 `build` needs buildx ≥ 0.17 |
+| `docker-compose` | the Compose v2 plugin (`docker compose …`) |
+
+Dev machine only (for the native workflow and parser validation), additionally:
+`node` (Node 22), and `chadwick` — used **only** as a black-box oracle to
+generate golden fixtures (`scripts/make-fixtures.sh`); never a runtime dependency.
+
 ```bash
 # CLI client + Compose v2 & Buildx plugins + the Colima-backed engine.
 # (Buildx is required to build images — Compose v2 `build` needs buildx >= 0.17.)
-brew install colima docker docker-buildx docker-compose
+brew install git colima docker docker-buildx docker-compose
 
 # Let Docker find the plugins (Homebrew prints these caveats too)
 mkdir -p ~/.docker/cli-plugins
@@ -80,57 +109,88 @@ docker buildx version   # needs >= 0.17
 Colima only serves Docker while its VM is up (`colima status` / `colima stop`);
 `brew services start colima` keeps it up on a server. **Docker Desktop**
 (`brew install --cask docker`) is a fine alternative — it bundles the engine and
-Compose — but it's a GUI app you must keep running. On **Linux**, install Docker
-Engine from your distro / `get.docker.com`; no VM involved.
+Compose — but it's a GUI app you must keep running.
 
-## Quickstart (Docker — works on Mac or Linux)
+On **Linux**, run `./scripts/setup-linux.sh` (installs git + Docker Engine + the
+Compose/Buildx plugins; no VM involved), or bootstrap a bare host remotely:
 
 ```bash
-# 1. Get the Retrosheet source data (clones into ./data, or set RETROSHEET_DIR).
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sydvicious/retrosheet-service/main/scripts/setup-linux.sh)"
+```
+
+It uses `sudo` as needed. Or do the equivalent by hand via your distro package
+manager / `get.docker.com`.
+
+## Install from scratch (Docker — Mac or Linux)
+
+Prerequisites: **Docker** (engine running) and **git** — see *Prerequisites*
+above. Nothing else is needed on the host; Node, Postgres, and the parser all run
+in containers.
+
+```bash
+# 1. Clone this repo and enter it.
+git clone https://github.com/sydvicious/retrosheet-service.git
+cd retrosheet-service
+
+# 2. Get the Retrosheet source data (clones into ./data; a few minutes).
+#    Already have a clone? Skip this and use RETROSHEET_DIR in step 4 instead.
 ./scripts/fetch-data.sh
 
-# 2. Bring up Postgres.
+# 3. Bring up Postgres.
 docker compose up -d db
 
-# 3. Populate the database (one-shot loader container).
+# 4. Populate the database (one-shot loader). The play-by-play load takes
+#    several minutes and prints a per-season heartbeat so you can see progress.
 docker compose run --rm loader
+#    …or from an existing Retrosheet clone instead of ./data:
+#    RETROSHEET_DIR=/path/to/retrosheet docker compose run --rm loader
 
-# 4. Bring up the GraphQL API.
-docker compose up -d api
+# 5. Bring up the GraphQL API and the MCP server.
+docker compose up -d api mcp
 ```
 
-Then open **http://localhost:5050/** for GraphiQL, or POST GraphQL to
-**http://localhost:5050/graphql**. (Port 5050, not 5000 — on macOS the AirPlay
-Receiver in Control Center listens on 5000.)
+Endpoints (replace `localhost` with the host name, e.g. `plex`):
 
-To load from an existing local clone instead of `./data`:
+- **GraphQL / GraphiQL** — http://localhost:5050/ (port 5050, not 5000 — on macOS
+  the AirPlay Receiver in Control Center listens on 5000)
+- **MCP** (streamable HTTP) — http://localhost:5051/mcp
+
+## Update an existing installation
+
+Two cases, depending on whether only the **data** changed or the **code** changed.
+
+### A. New Retrosheet data only (no code change) — hot, no restart
+
+`scripts/update-data.sh` pulls the latest Retrosheet data and reloads it in a
+single transaction. The running services keep serving throughout — readers see
+the old data until the reload commits, then the new data (queries briefly block
+during the reload). No restart:
 
 ```bash
-RETROSHEET_DIR=/path/to/retrosheet docker compose run --rm loader
+./scripts/update-data.sh
 ```
 
-## Updating the data
+### B. New version of this service (code changed) — rebuild + reload
 
-**Routine update (a new Retrosheet release) — no restart.** The loader refreshes
-data in place: it truncates and reloads every table inside a single transaction,
-so readers see the old data until commit and the new data after. The running
-`api` keeps serving throughout (queries briefly block during the reload, then
-return fresh data). One command does the git pull + reload:
+`scripts/update-service.sh` pulls new code, rebuilds the image, does a full
+recreate load, and recreates the services so PostGraphile re-introspects the
+schema:
 
 ```bash
-./scripts/refresh.sh
+./scripts/update-service.sh
 ```
 
-**Structural rebuild — after the table definitions change.** When `sql/schema.sql`
-itself changes (new columns/tables between versions of *this* software), drop and
-recreate the schema, then restart the API so PostGraphile re-introspects:
+Equivalent manual steps:
 
 ```bash
-RECREATE=1 docker compose run --rm loader   # or: npm run etl -- --recreate
-docker compose restart api
+git pull
+docker compose build
+RECREATE=1 docker compose run --rm loader
+docker compose up -d --force-recreate api mcp
 ```
 
-Load only some seasons (handy for testing) with `SEASONS`:
+The recreate load reparses all play-by-play and takes several minutes (per-season
+heartbeat shown). For a quick test load, limit seasons:
 
 ```bash
 SEASONS=2023,2024 docker compose run --rm loader
@@ -188,6 +248,19 @@ npm test            # vitest — parser unit tests against golden fixtures
 npm run build       # tsc -> dist/
 npm run mcp         # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
 ```
+
+## To do
+
+- **Ansible playbook** — the setup scripts (`scripts/setup-macos.sh`,
+  `scripts/setup-linux.sh`) plus *Install from scratch* are the recipe; express
+  it declaratively as an Ansible role for reproducible provisioning across hosts
+  (the Plex box, the future Linux PC): provision host → install Docker → clone →
+  load → bring up `db`/`api`/`mcp`.
+- **Higher play-by-play parity** — a game-ordered harness that diffs base-runner
+  destinations / pitcher / outs-before against the Chadwick oracle at scale, and
+  resolving pinch-runner identity by lineup slot.
+- **Phase 4** — daily stat-line aggregation from `play`; **Phase 5** — the web
+  front-end.
 
 ## Retrosheet terms of use
 

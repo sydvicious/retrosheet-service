@@ -31,7 +31,7 @@ const schemaSqlPath = fileURLToPath(new URL("../../sql/schema.sql", import.meta.
 const ALL_TABLES = [
   "people", "teams", "ballparks", "coaches", "ejections", "relatives",
   "roster", "schedule", "game", "game_info", "lineup_start", "substitution",
-  "comment", "earned_runs", "game_adjustment",
+  "comment", "earned_runs", "game_adjustment", "play",
 ];
 
 async function main(): Promise<void> {
@@ -66,6 +66,7 @@ async function main(): Promise<void> {
       await client.query(`TRUNCATE ${ALL_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
 
       const root = cfg.retrosheetDir;
+      console.log("Loading reference, rosters, schedules …");
       // People first — coaches.player_id references it.
       counts.people = await loadPeople(client, root);
       counts.teams = await loadTeams(client, root);
@@ -76,7 +77,11 @@ async function main(): Promise<void> {
       counts.roster = await loadRosters(client, root);
       counts.schedule = await loadSchedules(client, root);
 
-      if (seasons) console.log(`Loading events for seasons: ${[...seasons].sort().join(", ")}`);
+      console.log(
+        seasons
+          ? `Loading events + play-by-play for seasons: ${[...seasons].sort().join(", ")} …`
+          : "Loading events + play-by-play (the long part; ~150 seasons) …",
+      );
       const eventCounts = await loadEvents(client, root, seasons);
       Object.assign(counts, eventCounts);
 

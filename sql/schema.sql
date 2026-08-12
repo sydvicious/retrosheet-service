@@ -264,6 +264,52 @@ CREATE TABLE IF NOT EXISTS game_adjustment (
 );
 CREATE INDEX IF NOT EXISTS game_adjustment_game_id_idx ON game_adjustment (game_id);
 
+-- Play-by-play (Phase 3). One row per play, with the interpreted event plus the
+-- replayed game context (outs/score before, base occupants, current pitcher) and
+-- each runner's destination. Derived clean-room from the event string.
+CREATE TABLE IF NOT EXISTS play (
+  id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  game_id            text NOT NULL REFERENCES game (game_id),
+  play_seq           integer,
+  inning             integer,
+  half               smallint,   -- 0 visiting bats, 1 home bats
+  batter_id          text,
+  pitcher_id         text,
+  outs_before        smallint,
+  balls              smallint,
+  strikes            smallint,
+  pitch_seq          text,
+  event              text,       -- raw Retrosheet event string
+  event_code         smallint,
+  event_name         text,
+  hit_value          smallint,   -- 0 none, 1 single, 2 double, 3 triple, 4 HR
+  at_bat             boolean,
+  sac_fly            boolean,
+  sac_hit            boolean,
+  double_play        boolean,
+  triple_play        boolean,
+  wild_pitch         boolean,
+  passed_ball        boolean,
+  outs_on_play       smallint,
+  rbi                smallint,
+  runs_on_play       smallint,
+  away_score_before  smallint,
+  home_score_before  smallint,
+  base1_before       text,
+  base2_before       text,
+  base3_before       text,
+  batter_dest        smallint,   -- 0 out/none, 1-3 base, 4 scored
+  run1_dest          smallint,
+  run2_dest          smallint,
+  run3_dest          smallint
+);
+CREATE INDEX IF NOT EXISTS play_game_id_idx ON play (game_id);
+CREATE INDEX IF NOT EXISTS play_batter_id_idx ON play (batter_id);
+CREATE INDEX IF NOT EXISTS play_pitcher_id_idx ON play (pitcher_id);
+CREATE INDEX IF NOT EXISTS play_event_code_idx ON play (event_code);
+CREATE INDEX IF NOT EXISTS play_hit_value_idx ON play (hit_value);
+CREATE INDEX IF NOT EXISTS play_inning_idx ON play (inning);
+
 -- ===========================================================================
 -- Additional query / sort indexes. This is a read-heavy, regenerable mart, so
 -- we index generously: every indexed column also becomes a GraphQL

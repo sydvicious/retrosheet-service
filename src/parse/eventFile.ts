@@ -49,11 +49,22 @@ export interface AdjustmentRecord {
   field2: string;
 }
 
+export interface PlayRecord {
+  seq: number; // record index within the game (for interleaving with subs)
+  inning: number;
+  half: number; // 0 = visiting bats, 1 = home bats
+  batterId: string;
+  count: string; // balls-strikes, or "??"
+  pitches: string;
+  event: string; // the raw play event string (Phase 3 interprets this)
+}
+
 export interface ParsedGame {
   gameId: string;
   info: Array<[string, string]>; // ordered key/value pairs, verbatim
   starts: LineupRecord[];
   subs: SubRecord[];
+  plays: PlayRecord[];
   comments: CommentRecord[];
   data: DataRecord[];
   adjustments: AdjustmentRecord[];
@@ -140,6 +151,7 @@ export function parseEventFile(text: string): ParsedGame[] {
         info: [],
         starts: [],
         subs: [],
+        plays: [],
         comments: [],
         data: [],
         adjustments: [],
@@ -165,6 +177,17 @@ export function parseEventFile(text: string): ParsedGame[] {
         if (s) cur.subs.push({ ...s, seq });
         break;
       }
+      case "play":
+        cur.plays.push({
+          seq,
+          inning: Number(f[1] ?? "0") || 0,
+          half: Number(f[2] ?? "0") || 0,
+          batterId: f[3] ?? "",
+          count: f[4] ?? "",
+          pitches: f[5] ?? "",
+          event: f[6] ?? "",
+        });
+        break;
       case "com":
         cur.comments.push({ seq, text: f[1] ?? "" });
         break;

@@ -13,6 +13,7 @@ import type { PoolClient } from "pg";
 import { copyRows } from "../db.js";
 import { seasonYears, eventFiles } from "./paths.js";
 import { parseEventFile, type ParsedGame } from "../parse/eventFile.js";
+import { replayGame } from "../parse/gameState.js";
 import { slashDateToIso, toIntOrNull } from "../parse/dates.js";
 
 export interface EventCounts {
@@ -23,6 +24,21 @@ export interface EventCounts {
   comment: number;
   earned_runs: number;
   game_adjustment: number;
+  play: number;
+}
+
+const PLAY_COLS = [
+  "game_id", "play_seq", "inning", "half", "batter_id", "pitcher_id",
+  "outs_before", "balls", "strikes", "pitch_seq", "event", "event_code",
+  "event_name", "hit_value", "at_bat", "sac_fly", "sac_hit", "double_play",
+  "triple_play", "wild_pitch", "passed_ball", "outs_on_play", "rbi",
+  "runs_on_play", "away_score_before", "home_score_before", "base1_before",
+  "base2_before", "base3_before", "batter_dest", "run1_dest", "run2_dest",
+  "run3_dest",
+];
+
+function b(v: boolean): string {
+  return v ? "true" : "false";
 }
 
 // info keys promoted to typed columns on `game`. Every info key is ALSO stored
@@ -111,7 +127,7 @@ export async function loadEvents(
 ): Promise<EventCounts> {
   const counts: EventCounts = {
     game: 0, game_info: 0, lineup_start: 0, substitution: 0,
-    comment: 0, earned_runs: 0, game_adjustment: 0,
+    comment: 0, earned_runs: 0, game_adjustment: 0, play: 0,
   };
 
   const years = seasonYears(root).filter((y) => !seasons || seasons.has(y));
@@ -127,6 +143,7 @@ export async function loadEvents(
       const comRows: (string | null)[][] = [];
       const erRows: (string | null)[][] = [];
       const adjRows: (string | null)[][] = [];
+      const playRows: (string | null)[][] = [];
 
       for (const g of games) {
         if (g.gameId === "") continue;
@@ -145,6 +162,17 @@ export async function loadEvents(
         for (const a of g.adjustments) {
           adjRows.push([g.gameId, String(a.seq), a.type, a.field1, a.field2]);
         }
+        for (const r of replayGame(g)) {
+          playRows.push([
+            r.gameId, String(r.playSeq), num(r.inning), num(r.half), r.batterId, r.pitcherId,
+            num(r.outsBefore), num(r.balls), num(r.strikes), r.pitchSeq, r.event, num(r.eventCode),
+            r.eventName, num(r.hitValue), b(r.atBat), b(r.sacFly), b(r.sacHit), b(r.doublePlay),
+            b(r.triplePlay), b(r.wildPitch), b(r.passedBall), num(r.outsOnPlay), num(r.rbi),
+            num(r.runsOnPlay), num(r.awayScoreBefore), num(r.homeScoreBefore), r.base1Before,
+            r.base2Before, r.base3Before, num(r.batterDest), num(r.run1Dest), num(r.run2Dest),
+            num(r.run3Dest),
+          ]);
+        }
       }
 
       // game first (children FK game_id), then children.
@@ -155,7 +183,12 @@ export async function loadEvents(
       if (comRows.length) counts.comment += await copyRows(client, "comment", ["game_id", "seq", "text"], comRows);
       if (erRows.length) counts.earned_runs += await copyRows(client, "earned_runs", ["game_id", "player_id", "earned_runs"], erRows);
       if (adjRows.length) counts.game_adjustment += await copyRows(client, "game_adjustment", ["game_id", "seq", "adj_type", "field1", "field2"], adjRows);
+      if (playRows.length) counts.play += await copyRows(client, "play", PLAY_COLS, playRows);
     }
+    // Per-season heartbeat so a long full load visibly progresses.
+    console.log(
+      `  events ${year}: games=${counts.game.toLocaleString()} plays=${counts.play.toLocaleString()}`,
+    );
   }
 
   return counts;
