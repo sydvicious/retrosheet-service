@@ -26,6 +26,16 @@ export function rosterFiles(root: string, year: string): string[] {
     .sort();
 }
 
+/** Event files (.EVN / .EVA / .EVE — play-by-play) for a season, sorted. */
+export function eventFiles(root: string, year: string): string[] {
+  const dir = seasonDir(root, year);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((n) => /\.EV[NAE]$/i.test(n))
+    .map((n) => join(dir, n))
+    .sort();
+}
+
 /** Path to <year>schedule.csv for a season, or null if absent. */
 export function scheduleFile(root: string, year: string): string | null {
   const p = join(seasonDir(root, year), `${year}schedule.csv`);

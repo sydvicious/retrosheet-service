@@ -15,9 +15,13 @@ Built in phases:
 - **Phase 0 — running skeleton** ✅ Postgres + PostGraphile via Docker Compose.
 - **Phase 1 — reference data** ✅ people, teams, ballparks, coaches, ejections,
   relatives, rosters, schedules.
-- **Phase 2 — game/lineup/substitution/comment data** ⏳
+- **Phase 2 — game / lineup / substitution / comment data** ✅ ~199k games with
+  metadata, starting lineups, substitutions, comments, earned runs, adjustments,
+  and verbatim `game_info` — parsed clean-room from the event files.
 - **Phase 3 — play-by-play events** ⏳
 - **Phase 4 — daily stat lines** ⏳
+- **Phase 5 — web front-end**
+- **Phase 6 — MCP server** ⏳ (see the plan)
 
 ## Design notes
 
@@ -26,10 +30,57 @@ Built in phases:
   implementation built solely from Retrosheet's published format spec. (The
   Chadwick tools are used only on a dev machine, as a black-box oracle, to
   generate golden test fixtures — never read as source; they are GPL.)
-- **The database is a regenerable mart.** `sql/schema.sql` is applied wholesale
-  by the loader; "update to a new Retrosheet release" = refresh the source data
-  and reload.
+- **The database is a regenerable mart.** `sql/schema.sql` is idempotent; the
+  loader ensures it, then **truncates + reloads every table inside one
+  transaction**. So "update to a new Retrosheet release" is a hot refresh — the
+  running API keeps serving and needs no restart (see *Updating the data*).
+- **Querying:** the auto-generated API exposes `condition` (equality), `orderBy`,
+  pagination, and FK relations. PostGraphile offers `condition`/`orderBy` on
+  **indexed columns**, and the dataset is small enough that we index generously
+  (`sql/schema.sql`) — so most useful columns are filterable and sortable. Richer
+  filtering (ranges, `in`, contains) is a planned add via the connection-filter
+  plugin.
 - License: **BSD 3-Clause** (see `LICENSE`).
+
+## Prerequisites
+
+The Docker path runs everything in containers, so a deployment host needs only
+**Docker (engine running)** and **git** — no Node, Postgres, or Chadwick on the
+host.
+
+### Docker engine on macOS — Colima (no Docker Desktop required)
+
+`brew install docker` installs only the CLI *client*; macOS still needs a Linux
+VM to run the Docker *engine*. On a headless box (e.g. a Plex server) the clean,
+GUI-free route is **[Colima](https://github.com/abiosoft/colima)**:
+
+```bash
+# CLI client + Compose v2 & Buildx plugins + the Colima-backed engine.
+# (Buildx is required to build images — Compose v2 `build` needs buildx >= 0.17.)
+brew install colima docker docker-buildx docker-compose
+
+# Let Docker find the plugins (Homebrew prints these caveats too)
+mkdir -p ~/.docker/cli-plugins
+ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" ~/.docker/cli-plugins/docker-compose
+ln -sfn "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx" ~/.docker/cli-plugins/docker-buildx
+
+# Start the engine VM (a small resource bump helps image builds + Postgres)
+colima start --cpu 4 --memory 4 --disk 60
+
+# Keep it running across reboots (good for an always-on server)
+brew services start colima
+
+# Verify
+docker info >/dev/null 2>&1 && echo "engine OK"
+docker compose version
+docker buildx version   # needs >= 0.17
+```
+
+Colima only serves Docker while its VM is up (`colima status` / `colima stop`);
+`brew services start colima` keeps it up on a server. **Docker Desktop**
+(`brew install --cask docker`) is a fine alternative — it bundles the engine and
+Compose — but it's a GUI app you must keep running. On **Linux**, install Docker
+Engine from your distro / `get.docker.com`; no VM involved.
 
 ## Quickstart (Docker — works on Mac or Linux)
 
@@ -55,6 +106,33 @@ To load from an existing local clone instead of `./data`:
 
 ```bash
 RETROSHEET_DIR=/path/to/retrosheet docker compose run --rm loader
+```
+
+## Updating the data
+
+**Routine update (a new Retrosheet release) — no restart.** The loader refreshes
+data in place: it truncates and reloads every table inside a single transaction,
+so readers see the old data until commit and the new data after. The running
+`api` keeps serving throughout (queries briefly block during the reload, then
+return fresh data). One command does the git pull + reload:
+
+```bash
+./scripts/refresh.sh
+```
+
+**Structural rebuild — after the table definitions change.** When `sql/schema.sql`
+itself changes (new columns/tables between versions of *this* software), drop and
+recreate the schema, then restart the API so PostGraphile re-introspects:
+
+```bash
+RECREATE=1 docker compose run --rm loader   # or: npm run etl -- --recreate
+docker compose restart api
+```
+
+Load only some seasons (handy for testing) with `SEASONS`:
+
+```bash
+SEASONS=2023,2024 docker compose run --rm loader
 ```
 
 ## Quickstart (native, on this Mac dev machine)

@@ -13,6 +13,15 @@ export function usDateToIso(s: string | null | undefined): string | null {
   return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
 }
 
+/** "YYYY/MM/DD" -> "YYYY-MM-DD", or null if blank/unrecognized. (event-file info dates) */
+export function slashDateToIso(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(s.trim());
+  if (!m) return null;
+  const [, yyyy = "", mm = "", dd = ""] = m;
+  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+}
+
 /** "YYYYMMDD" -> "YYYY-MM-DD", or null if blank/unrecognized. */
 export function compactDateToIso(s: string | null | undefined): string | null {
   if (!s) return null;

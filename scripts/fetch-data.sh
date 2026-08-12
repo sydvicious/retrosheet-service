@@ -13,8 +13,15 @@ DATA_DIR="${1:-./data}"
 REPO="https://github.com/chadwickbureau/retrosheet"
 
 if [ -d "$DATA_DIR/.git" ]; then
+  # Already a clone — update in place (a new Retrosheet release = a fast-forward).
   echo "Updating Retrosheet data in $DATA_DIR ..."
   git -C "$DATA_DIR" pull --ff-only
+elif [ -e "$DATA_DIR" ] && [ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
+  # Exists and non-empty but not a git repo (e.g. an rsync'd copy or a tarball).
+  # Don't try to clone over it — just use it as-is.
+  echo "$DATA_DIR exists and is non-empty but is not a git clone; using it as-is."
+  echo "(To enable in-place updates, remove it and re-run to clone, or point"
+  echo " RETROSHEET_DIR at a git clone of $REPO.)"
 else
   echo "Cloning Retrosheet data into $DATA_DIR ..."
   git clone --depth 1 "$REPO" "$DATA_DIR"
