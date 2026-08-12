@@ -194,7 +194,7 @@ Equivalent manual steps:
 
 ```bash
 git pull
-docker compose build
+docker compose --profile etl build   # --profile etl so the loader image is rebuilt too
 RECREATE=1 docker compose run --rm loader
 docker compose up -d --force-recreate api mcp
 ```

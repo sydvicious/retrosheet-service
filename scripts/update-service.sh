@@ -30,8 +30,9 @@ else
   ./scripts/fetch-data.sh "$RETROSHEET_DIR"
 fi
 
-echo "==> Rebuilding the image (no cache, so new code can't be masked by a stale layer) …"
-docker compose build --no-cache --pull
+echo "==> Rebuilding all images incl. the loader (the loader is behind the 'etl'"
+echo "    profile, which a plain 'docker compose build' would skip) …"
+docker compose --profile etl build --no-cache --pull
 
 echo "==> Ensuring Postgres is up …"
 docker compose up -d db
