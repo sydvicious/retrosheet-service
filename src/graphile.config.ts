@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 import { makePgService } from "postgraphile/adaptors/pg";
 import { PostGraphileAmberPreset } from "postgraphile/presets/amber";
+import { PostGraphileConnectionFilterPreset } from "postgraphile-plugin-connection-filter";
 import { loadConfig } from "./config.js";
 
 const cfg = loadConfig();
@@ -10,7 +11,7 @@ const cfg = loadConfig();
 // behavior (Relay-ish connections, filtering, ordering). We reflect a single
 // schema — the regenerable Retrosheet mart.
 const preset = {
-  extends: [PostGraphileAmberPreset],
+  extends: [PostGraphileAmberPreset, PostGraphileConnectionFilterPreset],
   pgServices: [
     makePgService({
       connectionString: cfg.databaseUrl,

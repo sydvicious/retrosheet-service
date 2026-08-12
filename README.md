@@ -34,12 +34,12 @@ Built in phases:
   loader ensures it, then **truncates + reloads every table inside one
   transaction**. So "update to a new Retrosheet release" is a hot refresh — the
   running API keeps serving and needs no restart (see *Updating the data*).
-- **Querying:** the auto-generated API exposes `condition` (equality), `orderBy`,
-  pagination, and FK relations. PostGraphile offers `condition`/`orderBy` on
-  **indexed columns**, and the dataset is small enough that we index generously
-  (`sql/schema.sql`) — so most useful columns are filterable and sortable. Richer
-  filtering (ranges, `in`, contains) is a planned add via the connection-filter
-  plugin.
+- **Querying:** the auto-generated API exposes a rich `filter` argument
+  (ranges, `in`/`notIn`, string `includesInsensitive`/`startsWith`/`like`,
+  `isNull`, and `and`/`or`/`not`) via the connection-filter plugin, plus
+  `condition` (equality), `orderBy`, pagination, and FK relations. `condition`/
+  `orderBy` are offered on **indexed columns**; the dataset is small so we index
+  generously (`sql/schema.sql`). `filter` works on any column.
 - License: **BSD 3-Clause** (see `LICENSE`).
 
 ## Prerequisites

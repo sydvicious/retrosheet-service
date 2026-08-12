@@ -24,7 +24,8 @@
     "csv-parse": "^5.6.0",
     "pg": "^8.13.1",
     "pg-copy-streams": "^6.0.6",
-    "postgraphile": "^5.1.4"
+    "postgraphile": "^5.1.4",
+    "postgraphile-plugin-connection-filter": "^3.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
