@@ -2,14 +2,14 @@
 # Copyright (c) 2026 Syd Polk
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Update this SERVICE to the latest code and reload. Pulls new code, rebuilds the
-# image, does a full recreate load (reparses all play-by-play), and recreates the
-# services so PostGraphile re-introspects the schema. Use this when the code or
-# schema changed.
+# Update this SERVICE to the latest code AND the latest Retrosheet data, in a
+# single reload. Pulls new code, refreshes the Retrosheet data, rebuilds the
+# image, does one full recreate load (reparses all play-by-play), and recreates
+# the services so PostGraphile re-introspects the schema.
 #
-# For a Retrosheet-data-only refresh (no code change), use update-data.sh — it's
-# faster and needs no restart. This uses the Retrosheet data already on disk;
-# run update-data.sh first if you also want fresher data.
+# For a Retrosheet-data-only refresh (no code change), use update-data.sh instead
+# — it's faster and needs no restart. Skip the data refresh here by setting
+# SKIP_DATA=1 (e.g. a pure code change on a slow/off-line box).
 #
 # Run from the repo directory. On a REMOTE host, run this inside tmux or screen so
 # a dropped SSH connection can't abort the multi-minute load:
@@ -20,6 +20,15 @@ set -euo pipefail
 
 echo "==> Pulling the latest code …"
 git pull --ff-only
+
+if [ "${SKIP_DATA:-0}" = "1" ]; then
+  echo "==> Skipping Retrosheet data refresh (SKIP_DATA=1)."
+else
+  : "${RETROSHEET_DIR:=./data}"
+  export RETROSHEET_DIR
+  echo "==> Refreshing Retrosheet data ($RETROSHEET_DIR) …"
+  ./scripts/fetch-data.sh "$RETROSHEET_DIR"
+fi
 
 echo "==> Rebuilding the image …"
 docker compose build
