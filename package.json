@@ -20,6 +20,7 @@
     "mcp:built": "node dist/mcp/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "validate:plays": "tsx src/tools/validate-plays.ts",
     "lint": "eslint ."
   },
   "dependencies": {
