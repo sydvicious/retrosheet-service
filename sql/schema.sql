@@ -311,6 +311,85 @@ CREATE INDEX IF NOT EXISTS play_hit_value_idx ON play (hit_value);
 CREATE INDEX IF NOT EXISTS play_inning_idx ON play (inning);
 
 -- ===========================================================================
+-- Phase 4 — daily stat lines. One row per player per game, AGGREGATED IN SQL
+-- from the play table (+ earned_runs / game / lineup_start). No new parsing;
+-- these are derived and rebuilt on every load, after the play table is filled.
+-- Fielding stat lines (PO/A/E per position) are intentionally out of scope: they
+-- need the parsed fielder sequence, which the play table does not persist.
+-- ===========================================================================
+
+-- Batting line per (game, batter). Runs = runs the player scored (as batter or
+-- baserunner). stolen_bases / caught_stealing are attributed to the runner from
+-- the event's SB/CS token; gidp counts batter-into-double-play (all DP types).
+CREATE TABLE IF NOT EXISTS batting_daily (
+  game_id            text NOT NULL REFERENCES game (game_id),
+  player_id          text NOT NULL,
+  team               text,
+  game_date          date,
+  side               smallint,   -- 0 = visiting, 1 = home
+  plate_appearances  integer NOT NULL DEFAULT 0,
+  at_bats            integer NOT NULL DEFAULT 0,
+  runs               integer NOT NULL DEFAULT 0,
+  hits               integer NOT NULL DEFAULT 0,
+  doubles            integer NOT NULL DEFAULT 0,
+  triples            integer NOT NULL DEFAULT 0,
+  home_runs          integer NOT NULL DEFAULT 0,
+  rbi                integer NOT NULL DEFAULT 0,
+  walks              integer NOT NULL DEFAULT 0,
+  intentional_walks  integer NOT NULL DEFAULT 0,
+  strikeouts         integer NOT NULL DEFAULT 0,
+  hit_by_pitch       integer NOT NULL DEFAULT 0,
+  sac_hits           integer NOT NULL DEFAULT 0,
+  sac_flies          integer NOT NULL DEFAULT 0,
+  gidp               integer NOT NULL DEFAULT 0,
+  stolen_bases       integer NOT NULL DEFAULT 0,
+  caught_stealing    integer NOT NULL DEFAULT 0,
+  total_bases        integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (game_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS batting_daily_player_id_idx  ON batting_daily (player_id);
+CREATE INDEX IF NOT EXISTS batting_daily_team_idx       ON batting_daily (team);
+CREATE INDEX IF NOT EXISTS batting_daily_game_date_idx  ON batting_daily (game_date);
+CREATE INDEX IF NOT EXISTS batting_daily_home_runs_idx  ON batting_daily (home_runs);
+CREATE INDEX IF NOT EXISTS batting_daily_hits_idx       ON batting_daily (hits);
+CREATE INDEX IF NOT EXISTS batting_daily_rbi_idx        ON batting_daily (rbi);
+CREATE INDEX IF NOT EXISTS batting_daily_stolen_bases_idx ON batting_daily (stolen_bases);
+
+-- Pitching line per (game, pitcher). outs → IP (outs/3). runs is runs that
+-- scored while this pitcher was on the mound (see daily.ts: inherited-runner
+-- attribution is a known refinement); earned_runs is authoritative, from the
+-- Retrosheet data,er records. won/lost/saved come from the game decision fields.
+CREATE TABLE IF NOT EXISTS pitching_daily (
+  game_id            text NOT NULL REFERENCES game (game_id),
+  player_id          text NOT NULL,
+  team               text,
+  game_date          date,
+  side               smallint,   -- fielding side: 0 = visiting, 1 = home
+  games_started      boolean NOT NULL DEFAULT false,
+  outs               integer NOT NULL DEFAULT 0,
+  batters_faced      integer NOT NULL DEFAULT 0,
+  hits               integer NOT NULL DEFAULT 0,
+  home_runs          integer NOT NULL DEFAULT 0,
+  runs               integer NOT NULL DEFAULT 0,
+  earned_runs        integer,
+  walks              integer NOT NULL DEFAULT 0,
+  intentional_walks  integer NOT NULL DEFAULT 0,
+  strikeouts         integer NOT NULL DEFAULT 0,
+  hit_by_pitch       integer NOT NULL DEFAULT 0,
+  wild_pitches       integer NOT NULL DEFAULT 0,
+  balks              integer NOT NULL DEFAULT 0,
+  won                boolean NOT NULL DEFAULT false,
+  lost               boolean NOT NULL DEFAULT false,
+  saved              boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (game_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS pitching_daily_player_id_idx  ON pitching_daily (player_id);
+CREATE INDEX IF NOT EXISTS pitching_daily_team_idx       ON pitching_daily (team);
+CREATE INDEX IF NOT EXISTS pitching_daily_game_date_idx  ON pitching_daily (game_date);
+CREATE INDEX IF NOT EXISTS pitching_daily_strikeouts_idx ON pitching_daily (strikeouts);
+CREATE INDEX IF NOT EXISTS pitching_daily_outs_idx       ON pitching_daily (outs);
+
+-- ===========================================================================
 -- Additional query / sort indexes. This is a read-heavy, regenerable mart, so
 -- we index generously: every indexed column also becomes a GraphQL
 -- condition/orderBy field (PostGraphile exposes those on indexed columns only).

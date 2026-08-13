@@ -123,6 +123,9 @@ function gameRow(g: ParsedGame): (string | null)[] {
 export interface LoadProgress {
   plays: number;
   label: string;
+  // When set, the heartbeat prints this instead of the (frozen) play count —
+  // used by phases that aren't loading plays (e.g. the daily aggregation).
+  detail?: string;
 }
 
 export async function loadEvents(

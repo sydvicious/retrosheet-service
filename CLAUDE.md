@@ -32,7 +32,7 @@ PC later). Node 22 + TypeScript throughout.
 ## Data source
 Retrosheet data is **not committed** (large, separately copyrighted). Point
 `RETROSHEET_DIR` at a local clone of `github.com/chadwickbureau/retrosheet`
-(`scripts/fetch-data.sh` clones/updates into `./data`). Retrosheet's terms of
+(`scripts/fetch-data.sh` clones/updates into `./.data`). Retrosheet's terms of
 use require attribution — see README.
 
 ## Testing philosophy

@@ -25,6 +25,7 @@ import {
 } from "./reference.js";
 import { loadRosters, loadSchedules } from "./seasons.js";
 import { loadEvents } from "./events.js";
+import { loadDaily } from "./daily.js";
 
 const schemaSqlPath = fileURLToPath(new URL("../../sql/schema.sql", import.meta.url));
 
@@ -32,6 +33,7 @@ const ALL_TABLES = [
   "people", "teams", "ballparks", "coaches", "ejections", "relatives",
   "roster", "schedule", "game", "game_info", "lineup_start", "substitution",
   "comment", "earned_runs", "game_adjustment", "play",
+  "batting_daily", "pitching_daily",
 ];
 
 async function main(): Promise<void> {
@@ -61,10 +63,13 @@ async function main(): Promise<void> {
     const counts: Record<string, number> = {};
     // Heartbeat clock: a line every 5s with elapsed time + live play count, so a
     // stall is obvious in seconds rather than after the whole load.
-    const progress = { plays: 0, label: "preparing" };
+    const progress = { plays: 0, label: "preparing", detail: "" };
     const ticker = setInterval(() => {
       const s = ((Date.now() - started) / 1000).toFixed(0);
-      console.log(`  … [${s}s] ${progress.label}: ${progress.plays.toLocaleString()} plays loaded`);
+      // Phases loading plays show the running count; other phases (daily
+      // aggregation, commit) set `detail` so the line reflects real work.
+      const status = progress.detail || `${progress.plays.toLocaleString()} plays loaded`;
+      console.log(`  … [${s}s] ${progress.label}: ${status}`);
     }, 5000);
     ticker.unref();
 
@@ -97,6 +102,15 @@ async function main(): Promise<void> {
       const eventCounts = await loadEvents(client, root, seasons, progress);
       Object.assign(counts, eventCounts);
 
+      // Phase 4: derive daily stat lines from the freshly-loaded play table
+      // (pure SQL aggregation, same transaction).
+      progress.label = "daily stat lines";
+      console.log("Aggregating daily stat lines from plays …");
+      const dailyCounts = await loadDaily(client, progress);
+      Object.assign(counts, dailyCounts);
+
+      progress.label = "committing";
+      progress.detail = "flushing the transaction …";
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");

@@ -60,9 +60,9 @@ services:
       PG_SCHEMA: retrosheet
       RETROSHEET_DIR: /data
     volumes:
-      # Host Retrosheet data (defaults to ./data from scripts/fetch-data.sh),
+      # Host Retrosheet data (defaults to ./.data from scripts/fetch-data.sh),
       # mounted read-only.
-      - "${RETROSHEET_DIR:-./data}:/data:ro"
+      - "${RETROSHEET_DIR:-./.data}:/data:ro"
     command: ["node", "dist/etl/run.js"]
 
 volumes:

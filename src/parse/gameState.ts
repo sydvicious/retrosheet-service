@@ -10,7 +10,7 @@
 // Base-runner ids are tracked best-effort; pinch-runner identity swaps are not
 // yet resolved by lineup slot (a known refinement, validated later against the
 // Chadwick oracle).
-import { parseEvent } from "./playString.js";
+import { parseEvent, type SubEvent } from "./playString.js";
 import type { ParsedGame } from "./eventFile.js";
 
 export interface PlayRow {
@@ -51,6 +51,47 @@ export interface PlayRow {
 
 function baseNum(to: string): number {
   return to === "H" ? 4 : Number(to);
+}
+
+// Base a runner started on for a steal/caught-stealing/pickoff-CS of a target.
+const STEAL_ORIGIN: Record<string, string> = { "2": "1", "3": "2", H: "3" };
+
+/**
+ * Runner movements that Retrosheet encodes IMPLICITLY inside a running-event
+ * basic (the base is baked into the token instead of written as an explicit
+ * `.from-to` advance):
+ *   SB2  → runner on 1 steals 2       SBH  → runner on 3 steals home (scores)
+ *   CS2  → runner on 1 caught stealing 2 (out)
+ *   POCS2→ runner on 1 picked off / caught stealing 2 (out)
+ *   PO1  → runner on 1 picked off (out; here the base is the ORIGIN, not a target)
+ * An error in the token's parenthetical (e.g. `CS2(2E6)`, `PO1(E1)`) negates the
+ * out — the runner is safe. Multi-steals arrive as one basic (`SB3;SB2`), so
+ * every token in every sub-event is scanned. These are only DEFAULTS: an
+ * explicit advance (the `.` part, e.g. `SB2.1-3(E2/TH)`) always wins, so the
+ * caller merges these under, never over, the explicit advances.
+ */
+function impliedRunningAdvances(events: SubEvent[]): { from: string; to: string; out: boolean }[] {
+  const moves: { from: string; to: string; out: boolean }[] = [];
+  const re = /(POCS|SB|CS|PO)([123H])(?:\(([^)]*)\))?/g;
+  for (const e of events) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(e.basic)) !== null) {
+      const [, kind = "", base = "", paren = ""] = m;
+      const hasError = /E/.test(paren);
+      if (kind === "SB") {
+        const from = STEAL_ORIGIN[base];
+        if (from) moves.push({ from, to: base, out: false });
+      } else if (kind === "CS" || kind === "POCS") {
+        const from = STEAL_ORIGIN[base];
+        if (from) moves.push({ from, to: base, out: !hasError });
+      } else if (kind === "PO" && base !== "H") {
+        // base is the origin; the runner is retired in place (error → safe, stays).
+        moves.push({ from: base, to: base, out: !hasError });
+      }
+    }
+  }
+  return moves;
 }
 
 function parseCount(count: string): [number | null, number | null] {
@@ -140,6 +181,11 @@ export function replayGame(game: ParsedGame): PlayRow[] {
     // Explicit advances, keyed by origin base ('B','1','2','3').
     const adv = new Map<string, { to: string; out: boolean }>();
     for (const a of p.advances) adv.set(a.from, { to: a.to, out: a.out });
+    // Fill in advances left implicit in the running-event basic (SB/CS/PO/POCS)
+    // — but never override an explicit advance for the same runner.
+    for (const imp of impliedRunningAdvances(p.events)) {
+      if (!adv.has(imp.from)) adv.set(imp.from, { to: imp.to, out: imp.out });
+    }
 
     // Batter destination.
     let batterDest = 0;

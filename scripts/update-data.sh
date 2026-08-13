@@ -8,10 +8,10 @@
 # new data — so db/api/mcp keep serving throughout.
 #
 # For a CODE update (new version of this service), use update-service.sh instead.
-# Run from the repo directory. Honors RETROSHEET_DIR (default ./data).
+# Run from the repo directory. Honors RETROSHEET_DIR (default ./.data).
 set -euo pipefail
 
-: "${RETROSHEET_DIR:=./data}"
+: "${RETROSHEET_DIR:=./.data}"
 export RETROSHEET_DIR
 
 echo "==> Updating Retrosheet source data ($RETROSHEET_DIR) …"

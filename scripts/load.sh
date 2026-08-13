@@ -3,16 +3,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Convenience: bring up Postgres and populate it via the loader container.
-# Honors RETROSHEET_DIR (defaults to ./data, which fetch-data.sh populates).
+# Honors RETROSHEET_DIR (defaults to ./.data, which fetch-data.sh populates).
 set -euo pipefail
 
-: "${RETROSHEET_DIR:=./data}"
+: "${RETROSHEET_DIR:=./.data}"
 export RETROSHEET_DIR
 
 if [ ! -d "$RETROSHEET_DIR" ]; then
-  echo "RETROSHEET_DIR ($RETROSHEET_DIR) not found; fetching into ./data ..."
-  ./scripts/fetch-data.sh ./data
-  export RETROSHEET_DIR=./data
+  echo "RETROSHEET_DIR ($RETROSHEET_DIR) not found; fetching into ./.data ..."
+  ./scripts/fetch-data.sh ./.data
+  export RETROSHEET_DIR=./.data
 fi
 
 docker compose up -d db

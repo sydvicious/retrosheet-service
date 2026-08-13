@@ -24,7 +24,7 @@ git pull --ff-only
 if [ "${SKIP_DATA:-0}" = "1" ]; then
   echo "==> Skipping Retrosheet data refresh (SKIP_DATA=1)."
 else
-  : "${RETROSHEET_DIR:=./data}"
+  : "${RETROSHEET_DIR:=./.data}"
   export RETROSHEET_DIR
   echo "==> Refreshing Retrosheet data ($RETROSHEET_DIR) …"
   ./scripts/fetch-data.sh "$RETROSHEET_DIR"

@@ -58,6 +58,20 @@ describe("parseEvent — batter events", () => {
     expect(p.outsOnPlay).toBe(0);
   });
 
+  it("dropped third strike, batter thrown out at first, is ONE out", () => {
+    // The strikeout and the batter's out at first are the same runner; count once.
+    const p = parseEvent("K.BX1(23)");
+    expect(p.eventCode).toBe(EVENT_CD.strikeout);
+    expect(p.batterReached).toBe(false);
+    expect(p.outsOnPlay).toBe(1);
+  });
+
+  it("strikeout plus a caught stealing is two outs", () => {
+    const p = parseEvent("K+CS2(26)");
+    expect(p.eventCode).toBe(EVENT_CD.strikeout);
+    expect(p.outsOnPlay).toBe(2);
+  });
+
   it("walk and intentional walk are not at-bats", () => {
     expect(parseEvent("W").atBat).toBe(false);
     expect(parseEvent("W").eventCode).toBe(EVENT_CD.walk);
@@ -87,6 +101,12 @@ describe("parseEvent — outs, double plays, force outs", () => {
     expect(p.doublePlay).toBe(false);
     expect(p.outsOnPlay).toBe(1);
     expect(p.batterReached).toBe(true);
+  });
+
+  it("an 'X' advance negated by a fielding error is not an out", () => {
+    // Fielder's choice; the runner is marked out at third but safe on the E5.
+    const p = parseEvent("FC4/G4.1X3(456E5);B-2");
+    expect(p.outsOnPlay).toBe(0);
   });
 
   it("lined into double play is a DP, not a TP", () => {

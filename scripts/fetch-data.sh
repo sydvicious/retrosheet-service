@@ -6,10 +6,10 @@
 # Retrosheet repository (a new release = a git pull). The data is NOT committed
 # to this repo — it is separately copyrighted by Retrosheet.
 #
-# Usage: scripts/fetch-data.sh [target-dir]   (default: ./data)
+# Usage: scripts/fetch-data.sh [target-dir]   (default: ./.data)
 set -euo pipefail
 
-DATA_DIR="${1:-./data}"
+DATA_DIR="${1:-./.data}"
 REPO="https://github.com/chadwickbureau/retrosheet"
 
 if [ -d "$DATA_DIR/.git" ]; then

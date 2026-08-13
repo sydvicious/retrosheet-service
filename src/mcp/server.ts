@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import {
   runReadOnlySql, describeSchema, searchPeople, getPerson, getTeam,
-  getRoster, findGames, getGame, playerGames,
+  getRoster, findGames, getGame, playerGames, playerStats, playerGameLog,
 } from "./queries.js";
 
 const SQL_TIMEOUT_MS = 15_000;
@@ -173,6 +173,51 @@ export function buildServer(pool: Pool, schema: string): McpServer {
     async ({ game_id }) => {
       try {
         return ok(await getGame(pool, game_id));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "player_stats",
+    {
+      title: "Player stats",
+      description:
+        "Season-by-season batting AND pitching totals for a player id, from the daily " +
+        "stat lines, with rate stats (AVG/OBP/SLG, ERA/WHIP). Optionally limit to one year.",
+      inputSchema: {
+        player_id: z.string(),
+        year: z.number().int().optional().describe("Limit to a single season."),
+      },
+    },
+    async ({ player_id, year }) => {
+      try {
+        return ok(await playerStats(pool, player_id, year));
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "player_game_log",
+    {
+      title: "Player game log",
+      description:
+        "Per-game daily stat lines (a game log) for a player id — batting or pitching, " +
+        "optionally limited to a year.",
+      inputSchema: {
+        player_id: z.string(),
+        kind: z.enum(["batting", "pitching"]).optional()
+          .describe("Which lines to return (default batting)."),
+        year: z.number().int().optional(),
+        limit: z.number().int().min(1).max(MAX_ROWS).optional(),
+      },
+    },
+    async ({ player_id, kind, year, limit }) => {
+      try {
+        return ok(await playerGameLog(pool, player_id, kind ?? "batting", year, limit ?? 200));
       } catch (e) {
         return fail(e);
       }

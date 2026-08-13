@@ -164,6 +164,71 @@ export async function getGame(pool: Pool, gameId: string): Promise<unknown> {
   };
 }
 
+/**
+ * Season-by-season batting and pitching totals for a player, aggregated from the
+ * Phase 4 daily stat lines, with the usual rate stats (AVG/OBP/SLG, ERA/WHIP).
+ * Optionally limited to a single season.
+ */
+export async function playerStats(
+  pool: Pool,
+  playerId: string,
+  year: number | undefined,
+): Promise<{ batting: unknown[]; pitching: unknown[] }> {
+  const batting = await pool.query(
+    `SELECT EXTRACT(YEAR FROM game_date)::int AS year,
+            count(*) AS g,
+            sum(plate_appearances) AS pa, sum(at_bats) AS ab, sum(runs) AS r,
+            sum(hits) AS h, sum(doubles) AS "2b", sum(triples) AS "3b",
+            sum(home_runs) AS hr, sum(rbi) AS rbi, sum(walks) AS bb,
+            sum(strikeouts) AS so, sum(hit_by_pitch) AS hbp, sum(sac_flies) AS sf,
+            sum(stolen_bases) AS sb, sum(caught_stealing) AS cs, sum(total_bases) AS tb,
+            round(sum(hits)::numeric / NULLIF(sum(at_bats), 0), 3) AS avg,
+            round((sum(hits) + sum(walks) + sum(hit_by_pitch))::numeric
+                  / NULLIF(sum(at_bats) + sum(walks) + sum(hit_by_pitch) + sum(sac_flies), 0), 3) AS obp,
+            round(sum(total_bases)::numeric / NULLIF(sum(at_bats), 0), 3) AS slg
+       FROM batting_daily
+      WHERE player_id = $1 AND ($2::int IS NULL OR EXTRACT(YEAR FROM game_date) = $2)
+      GROUP BY year ORDER BY year`,
+    [playerId, year ?? null],
+  );
+  const pitching = await pool.query(
+    `SELECT EXTRACT(YEAR FROM game_date)::int AS year,
+            count(*) AS g, sum(games_started::int) AS gs,
+            sum(won::int) AS w, sum(lost::int) AS l, sum(saved::int) AS sv,
+            round(sum(outs)::numeric / 3, 1) AS ip, sum(batters_faced) AS bf,
+            sum(hits) AS h, sum(home_runs) AS hr, sum(runs) AS r, sum(earned_runs) AS er,
+            sum(walks) AS bb, sum(strikeouts) AS so, sum(hit_by_pitch) AS hbp,
+            sum(wild_pitches) AS wp, sum(balks) AS bk,
+            round(9 * sum(earned_runs)::numeric / NULLIF(sum(outs), 0) * 3, 2) AS era,
+            round((sum(walks) + sum(hits))::numeric / NULLIF(sum(outs), 0) * 3, 3) AS whip
+       FROM pitching_daily
+      WHERE player_id = $1 AND ($2::int IS NULL OR EXTRACT(YEAR FROM game_date) = $2)
+      GROUP BY year ORDER BY year`,
+    [playerId, year ?? null],
+  );
+  return { batting: batting.rows, pitching: pitching.rows };
+}
+
+/** Per-game daily stat lines (game log) for a player — batting or pitching. */
+export async function playerGameLog(
+  pool: Pool,
+  playerId: string,
+  kind: "batting" | "pitching",
+  year: number | undefined,
+  limit: number,
+): Promise<unknown[]> {
+  const table = kind === "pitching" ? "pitching_daily" : "batting_daily";
+  const res = await pool.query(
+    `SELECT d.*, g.visitor_team, g.home_team
+       FROM ${table} d JOIN game g ON g.game_id = d.game_id
+      WHERE d.player_id = $1 AND ($2::int IS NULL OR EXTRACT(YEAR FROM d.game_date) = $2)
+      ORDER BY d.game_date
+      LIMIT $3`,
+    [playerId, year ?? null, limit],
+  );
+  return res.rows;
+}
+
 export async function playerGames(
   pool: Pool,
   playerId: string,

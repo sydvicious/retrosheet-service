@@ -23,8 +23,12 @@ Built in phases:
 - **Phase 3 — play-by-play events** ✅ clean-room parser (~99.9% parity vs the
   Chadwick oracle) + game replay → the `play` table (event type, outs, RBIs,
   base state, pitcher, runner destinations). Ongoing refinement via
-  `npm run validate:plays`.
-- **Phase 4 — daily stat lines** ⏳
+  `npm run validate:plays` and `npm run audit:plays`.
+- **Phase 4 — daily stat lines** ✅ per-player-per-game **batting** and
+  **pitching** lines (`batting_daily`, `pitching_daily`), aggregated in pure SQL
+  from the `play` table on every load — no new parsing. Exposed over GraphQL and
+  via the `player_stats` / `player_game_log` MCP tools. (Fielding PO/A/E lines are
+  deferred: they need the parsed fielder sequence, which `play` doesn't persist.)
 - **Phase 5 — web front-end** ⏳
 
 ## Design notes
@@ -132,7 +136,7 @@ in containers.
 git clone https://github.com/sydvicious/retrosheet-service.git
 cd retrosheet-service
 
-# 2. Get the Retrosheet source data (clones into ./data; a few minutes).
+# 2. Get the Retrosheet source data (clones into ./.data; a few minutes).
 #    Already have a clone? Skip this and use RETROSHEET_DIR in step 4 instead.
 ./scripts/fetch-data.sh
 
@@ -142,7 +146,7 @@ docker compose up -d db
 # 4. Populate the database (one-shot loader). The play-by-play load takes
 #    several minutes and prints a per-season heartbeat so you can see progress.
 docker compose run --rm loader
-#    …or from an existing Retrosheet clone instead of ./data:
+#    …or from an existing Retrosheet clone instead of ./.data:
 #    RETROSHEET_DIR=/path/to/retrosheet docker compose run --rm loader
 
 # 5. Bring up the GraphQL API and the MCP server.
@@ -221,7 +225,9 @@ npm run dev                   # serve GraphQL at http://localhost:5050/
 A read-only [Model Context Protocol](https://modelcontextprotocol.io) server lets
 Claude (and other MCP clients) query the mart directly. Tools: `describe_schema`,
 `query_sql` (guarded read-only SELECT), `search_people`, `get_person`, `get_team`,
-`get_roster`, `find_games`, `get_game`, `player_games`.
+`get_roster`, `find_games`, `get_game`, `player_games`, `player_stats`
+(season-by-season batting + pitching totals with AVG/OBP/SLG, ERA/WHIP), and
+`player_game_log` (per-game daily lines).
 
 **Remote (streamable HTTP, e.g. over Tailscale) — containerized:**
 
@@ -253,11 +259,18 @@ isn't a `SELECT`/`WITH`.
 ## Development
 
 ```bash
-npm run typecheck   # tsc, no emit
-npm test            # vitest — parser unit tests against golden fixtures
-npm run build       # tsc -> dist/
-npm run mcp         # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
+npm run typecheck     # tsc, no emit
+npm test              # vitest — parser unit tests against golden fixtures
+npm run build         # tsc -> dist/
+npm run mcp           # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
+npm run validate:plays  # dev-only: parser parity vs committed Chadwick goldens
+npm run audit:plays     # dev-only: log plays the parser doesn't fully understand
 ```
+
+`audit:plays` replays the real event files (`RETROSHEET_DIR=…`) and reports plays
+with unknown event codes, unparseable runner-advance tokens, or impossible
+out-counts — surfacing parser gaps as concrete work. It needs no Chadwick and no
+database.
 
 ## To do
 
@@ -268,9 +281,12 @@ npm run mcp         # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
   load → bring up `db`/`api`/`mcp`.
 - **Higher play-by-play parity** — a game-ordered harness that diffs base-runner
   destinations / pitcher / outs-before against the Chadwick oracle at scale, and
-  resolving pinch-runner identity by lineup slot.
-- **Phase 4** — daily stat-line aggregation from `play`; **Phase 5** — the web
-  front-end.
+  resolving pinch-runner identity by lineup slot. `npm run audit:plays` tracks the
+  remaining long tail (currently ~0.04% of plays have an impossible out-count from
+  rare encodings / genuine 4-out appeal plays).
+- **Fielding daily lines** — PO/A/E/DP per position, once the parsed fielder
+  sequence is persisted on `play` (Phase 4 currently covers batting + pitching).
+- **Phase 5** — the web front-end.
 
 ## Retrosheet terms of use
 

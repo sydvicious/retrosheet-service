@@ -257,14 +257,20 @@ export function parseEvent(rawInput: string): ParsedPlay {
   //  - runners put out on the bases (X advances).
   let outsOnPlay = 0;
   if (primaryFielderOuts) outsOnPlay += primaryFielderOuts.outs;
-  else if (primary.code === EVENT_CD.strikeout && !batterReached) outsOnPlay += 1;
+  // A strikeout retires the batter — but only count it here when the batter isn't
+  // separately put out on the bases (e.g. dropped third strike, "K.BX1(23)"),
+  // whose out is already tallied from the 'X' advance below. Otherwise the single
+  // batter would be counted out twice.
+  else if (primary.code === EVENT_CD.strikeout && !batterReached && !batterAdvance?.out) outsOnPlay += 1;
   for (const e of events) {
     const c = classifyBasic(e.basic);
     if (c.code === EVENT_CD.caughtStealing || c.code === EVENT_CD.pickoff) {
       if (!/E/.test(e.basic)) outsOnPlay += 1; // an error negates the out
     }
   }
-  outsOnPlay += advances.filter((a) => a.out).length;
+  // A runner marked out ('X') whose parenthetical carries a fielding error was
+  // safe on that error — don't count it as an out.
+  outsOnPlay += advances.filter((a) => a.out && !a.params.some((p) => /E/.test(p))).length;
 
   // RBI: a run counts only when driven in by the batter's action. Exclude runs
   // that score on a non-batter event (WP/PB/SB/PO/OA/BK/DI) or via an error, and

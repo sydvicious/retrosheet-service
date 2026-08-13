@@ -16,7 +16,7 @@ export function loadConfig(): Config {
       "postgres://retrosheet:retrosheet@localhost:5432/retrosheet",
     schema: process.env.PG_SCHEMA ?? "retrosheet",
     port: Number(process.env.PORT ?? 5050),
-    retrosheetDir: process.env.RETROSHEET_DIR ?? "./data",
+    retrosheetDir: process.env.RETROSHEET_DIR ?? "./.data",
     mcpTransport: process.env.MCP_TRANSPORT === "http" ? "http" : "stdio",
     mcpPort: Number(process.env.MCP_PORT ?? 5051),
   };
