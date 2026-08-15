@@ -14,9 +14,9 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH st AS (
+WITH reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'), st AS (
   SELECT pd.game_id, pd.team, pd.runs AS ryan_r, pd.outs, pd.won, pd.lost
-  FROM pitching_daily pd
+  FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.player_id = 'ryann001' AND pd.games_started
     AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), tg AS (

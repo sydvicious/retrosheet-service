@@ -19,6 +19,7 @@ services:
 
   api:
     build: .
+    init: true          # tini as PID 1 so SIGINT/SIGTERM (Ctrl-C, docker stop) actually stop node
     depends_on:
       db:
         condition: service_healthy
@@ -34,6 +35,7 @@ services:
   # e.g. add http://<host>:5051/mcp as a remote MCP server (over Tailscale).
   mcp:
     build: .
+    init: true
     depends_on:
       db:
         condition: service_healthy
@@ -51,6 +53,7 @@ services:
   # Populate with:  docker compose run --rm loader
   loader:
     build: .
+    init: true          # so Ctrl-C on `docker compose run --rm loader` stops the load
     profiles: ["etl"]
     depends_on:
       db:

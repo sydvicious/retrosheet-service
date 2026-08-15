@@ -87,6 +87,21 @@ ratio. Since that ratio is a per-season constant it cannot manufacture or concea
 a first-18-vs-rest gap. As a check, `era_full` reproduces Ryan's published season
 ERA to within about 0.02.
 
-**Houston's league.** `teams.league` for HOU is `'NL;AL'` because of the 2013
-switch, so `WHERE league = 'NL'` silently drops the Astros from any 1987 league
-baseline. The 1987 NL is enumerated explicitly.
+**Leagues are a minefield.** `teams.league` is semicolon-joined when a franchise
+changed leagues without changing `team_id` — among modern clubs exactly `HOU`
+(`NL;AL`, 2013) and `MIL` (`AL;NL`, 1998), so `WHERE league = 'NL'` silently
+drops the Astros from any 1987 baseline. The 1987 NL is enumerated explicitly
+here for that reason. Three related traps, if you extend this work:
+
+* Eight Negro League clubs also use the joined form; Chicago American Giants
+  carries four leagues (`NN1;NSL;NN2;NAL`).
+* The 1880s–90s AA→NL moves are modelled as *separate team ids* rather than a
+  multi-valued league — Dodgers `BR3`→`BRO`, Reds `CN2`→`CIN`, Cardinals
+  `SL4`→`SLN`, Pirates `PT1`→`PIT`. League filters work; franchise-history
+  queries keyed on `team_id` quietly lose the AA years.
+* `league` is NULL for 78 rows — All-Star and barnstorming teams. An inner join
+  on league discards them silently.
+
+**Game type.** `game.game_type` is NULL for regular-season games, so
+`WHERE game_type = 'regular'` matches nothing at all. Postseason rounds carry
+values such as `divisionseries`.

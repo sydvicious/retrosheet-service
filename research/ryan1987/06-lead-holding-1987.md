@@ -6,7 +6,7 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 
 | group_ | exits_with_lead | leads_held | pct_leads_held | exits_tied | pct_tied_won |
 | --- | --- | --- | --- | --- | --- |
-| All other NL starters | 729 | 631 | 86.6 | 203 | 47.3 |
+| All other NL starters | 721 | 625 | 86.7 | 200 | 47.5 |
 | Other HOU starters | 52 | 43 | 82.7 | 12 | 66.7 |
 | Ryan 1987 | 12 | 8 | 66.7 | 3 | 33.3 |
 
@@ -14,10 +14,11 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH nl87 AS (SELECT unnest(ARRAY['ATL','CHN','CIN','HOU','LAN','MON','NYN','PHI','PIT','SDN','SFN','SLN']) AS team),
+WITH nl87 AS (SELECT unnest(ARRAY['ATL','CHN','CIN','HOU','LAN','MON','NYN','PHI','PIT','SDN','SFN','SLN']) AS team), reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'),
 st AS (
   SELECT pd.game_id, pd.player_id, pd.team
   FROM pitching_daily pd JOIN nl87 n ON n.team = pd.team
+  JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.games_started AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ),
 lastp AS (

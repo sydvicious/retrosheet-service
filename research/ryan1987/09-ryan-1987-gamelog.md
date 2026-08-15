@@ -45,10 +45,10 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH starts AS (
+WITH reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'), starts AS (
   SELECT pd.game_id, pd.game_date, pd.team, pd.outs, pd.batters_faced,
          pd.runs, pd.earned_runs, pd.strikeouts, pd.walks, pd.won, pd.lost
-  FROM pitching_daily pd
+  FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.player_id = 'ryann001' AND pd.games_started
     AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), pen AS (

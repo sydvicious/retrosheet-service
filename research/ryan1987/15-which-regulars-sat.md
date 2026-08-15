@@ -28,6 +28,7 @@ WITH ryan AS (
          (g.home_team = 'HOU') AS at_home, (r.game_id IS NOT NULL) AS is_ryan
   FROM game g LEFT JOIN ryan r ON r.game_id = g.game_id
   WHERE (g.home_team = 'HOU' OR g.visitor_team = 'HOU')
+    AND (g.game_type IS NULL OR g.game_type = 'regular')
     AND g.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), lineups AS (
   SELECT h.game_id, h.at_home, h.is_ryan, ls.player_id

@@ -45,10 +45,10 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH st AS (
-  SELECT game_id, game_date FROM pitching_daily
-  WHERE player_id = 'ryann001' AND games_started
-    AND game_date BETWEEN '1987-01-01' AND '1987-12-31'
+WITH reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'), st AS (
+  SELECT pd.game_id, pd.game_date FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
+    AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), last AS (
   SELECT p.game_id, MAX(p.play_seq) AS last_seq
   FROM play p JOIN st ON st.game_id = p.game_id

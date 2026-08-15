@@ -57,7 +57,7 @@ Counterfactuals, in descending order of confidence:
 ## 1. Batters faced per start — hypothesis not supported as stated
 
 1987's **25.68 BF/start** is not his lowest. Six seasons were lower: 1993
-(22.31), 1969 (23.80), 1986 (24.38), 1992 (24.96), 1991 (25.26), 1984 (25.33).
+(22.31), 1969 (23.80), 1986 (24.27), 1992 (24.96), 1991 (25.26), 1984 (25.33).
 It ranks 7th-lowest of the 26 seasons in which he made 10+ starts.
 
 The drop is also not a 1987 event. Ryan's workload steps down permanently after
@@ -66,7 +66,7 @@ his career. 1987 sits inside that later regime rather than standing out from it.
 
 **The framing that does survive** is exposure share. Of the innings Ryan threw in
 1987, only **30.1% came after the 18th batter** — versus 48.8% (1974), 48.4%
-(1977) and 48.0% (1973) at his peak. Only 1986 (28.0%) is lower among his full
+(1977) and 48.0% (1973) at his peak. Only 1986 (28.1%) is lower among his full
 seasons. Put the other way: in his prime nearly half his work came the third time
 through the order; by 1986–87 it was under a third.
 
@@ -74,7 +74,7 @@ And he was being removed while pitching *well*. In 1987 he made **22 starts
 allowing 2 runs or fewer** — his third-most ever, behind 1972 (28) and 1973
 (23), both seasons of 39 starts against his 34 — and in
 **12 of them (54.5%) he was pulled before facing 27 batters**. The comparable
-figures are 63.2% (1986), 53.3% (1991), 40.0% (1984 and 1992). In 1973–74 it was
+figures are 66.7% (1986), 53.3% (1991), 40.0% (1984 and 1992). In 1973–74 it was
 under 5%.
 
 So: 1987 was not uniquely short, but 1986–87 together are the point where Ryan
@@ -114,7 +114,7 @@ The Houston bullpen was ordinary in 1987 and catastrophic behind Ryan.
 
 | Group | IP | Runs | RA/9 |
 | --- | --- | --- | --- |
-| NL relievers, all 12 teams | 5748.3 | 3215 | 5.03 |
+| NL relievers, all 12 teams | 5690.0 | 3181 | 5.03 |
 | HOU relievers, all games | 432.0 | 246 | 5.13 |
 | HOU relievers, **non**-Ryan starts | 335.0 | 176 | 4.73 |
 | HOU relievers, **Ryan** starts | 97.0 | 70 | **6.49** |
@@ -126,7 +126,7 @@ The direct cost shows up in leads:
 
 | Group | Exits with a lead | Leads held | % |
 | --- | --- | --- | --- |
-| All other NL starters | 729 | 631 | 86.6 |
+| All other NL starters | 721 | 625 | 86.7 |
 | Other HOU starters | 52 | 43 | 82.7 |
 | **Ryan 1987** | **12** | **8** | **66.7** |
 
@@ -288,12 +288,12 @@ Two checks say this is noise:
 
 | Season | HOU runs/game | NL rank | NL average | vs league | Ryan support | Other HOU starts |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1986 | 4.08 | 7th of 12 | 4.21 | −0.14 | 3.72 | 4.16 |
-| 1987 | 4.04 | **11th of 12** | 4.55 | **−0.51** | 3.35 | 4.22 |
+| 1986 | 4.12 | 7th of 12 | 4.22 | −0.10 | 3.90 | 4.17 |
+| 1987 | 4.04 | **11th of 12** | 4.56 | **−0.53** | 3.35 | 4.22 |
 
-Houston's offense scored 4.08 runs per game in 1986 and 4.04 in 1987 — a change
-of 0.04, or about six runs across the season. What changed was the league, which
-jumped from 4.21 to 4.55 in the 1987 offensive spike widely attributed to the
+Houston's offense scored 4.12 runs per game in 1986 and 4.04 in 1987 — a change
+of 0.08, or about a dozen runs across the season. What changed was the league,
+which jumped from 4.22 to 4.56 in the 1987 offensive spike widely attributed to the
 ball. Houston stood still while everyone else gained, and fell from 7th to 11th
 on a rounding error's worth of actual decline.
 
@@ -302,9 +302,9 @@ worse in absolute terms in 1987, only in relative terms. Ryan's ERA looks better
 against that inflated backdrop too — his 2.76 came in a year when the league
 scored half a run per game more than the year before.
 
-Ryan was below his own team's support in both seasons (−0.44 in 1986, −0.87 in
-1987). Two consecutive years is suggestive, but even pooling both (66 starts)
-leaves t ≈ 1.7 — short of significance, and with no mechanism behind it.
+Ryan was below his own team's support in both seasons (−0.27 in 1986, −0.87 in
+1987). Two consecutive years is suggestive, but even pooling both (64 starts)
+leaves t well short of significance, and with no mechanism behind it.
 
 ## Conclusion
 

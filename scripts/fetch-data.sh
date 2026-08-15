@@ -27,3 +27,24 @@ else
   git clone --depth 1 "$REPO" "$DATA_DIR"
 fi
 echo "Retrosheet data ready in $DATA_DIR"
+
+# Regular-season game logs (per-game manager of record + game summary). These are
+# a separate Retrosheet download, not in the repo; fetch one per season year we
+# have, into gamelog/ (alongside the postseason GL*.TXT). Incremental — existing
+# years are skipped, so only new years are downloaded on later runs.
+if [ -d "$DATA_DIR/seasons" ] && command -v curl >/dev/null 2>&1; then
+  GLDIR="$DATA_DIR/gamelog"
+  mkdir -p "$GLDIR"
+  fetched=0
+  for y in $(ls "$DATA_DIR/seasons" | grep -E '^[0-9]{4}$' | sort); do
+    ls "$GLDIR"/gl"${y}".txt >/dev/null 2>&1 && continue
+    if curl -fsSL "https://www.retrosheet.org/gamelogs/gl${y}.zip" -o "$GLDIR/gl${y}.zip" 2>/dev/null; then
+      command -v unzip >/dev/null 2>&1 && unzip -oq "$GLDIR/gl${y}.zip" -d "$GLDIR"
+      rm -f "$GLDIR/gl${y}.zip"
+      fetched=$((fetched + 1))
+    fi
+  done
+  if [ "$fetched" -gt 0 ]; then
+    echo "Fetched $fetched new game-log year(s) into $GLDIR"
+  fi
+fi

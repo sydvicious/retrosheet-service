@@ -14,13 +14,13 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH ryan AS (
-  SELECT game_id FROM pitching_daily
-  WHERE player_id = 'ryann001' AND games_started
-    AND game_date BETWEEN '1987-01-01' AND '1987-12-31'
+WITH reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'), ryan AS (
+  SELECT pd.game_id FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
+    AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), tg AS (
   SELECT bd.game_id, SUM(bd.runs) AS runs FROM batting_daily bd
-  WHERE bd.team = 'HOU' AND bd.game_date BETWEEN '1987-01-01' AND '1987-12-31' GROUP BY 1
+  JOIN reg ON reg.game_id = bd.game_id WHERE bd.team = 'HOU' AND bd.game_date BETWEEN '1987-01-01' AND '1987-12-31' GROUP BY 1
 ), g2 AS (
   SELECT tg.game_id, tg.runs, (r.game_id IS NOT NULL) AS is_ryan,
          CASE WHEN g.home_team = 'HOU' THEN 'Astrodome' ELSE 'Road' END AS venue

@@ -12,6 +12,18 @@
 CREATE SCHEMA IF NOT EXISTS retrosheet;
 SET search_path TO retrosheet;
 
+-- Structural schema version marker. Single row, enforced by the CHECK on a fixed
+-- boolean PK. The loader stamps src/etl/schemaVersion.ts's SCHEMA_VERSION here
+-- after applying this file; on a later load a mismatch forces a full recreate, so
+-- a hot data refresh can't load into stale table definitions. Not a data table —
+-- never TRUNCATEd during a refresh.
+CREATE TABLE IF NOT EXISTS schema_meta (
+  singleton  boolean PRIMARY KEY DEFAULT true,
+  version    integer NOT NULL,
+  applied_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT schema_meta_singleton CHECK (singleton)
+);
+
 -- ===========================================================================
 -- Phase 1 — reference / roster / schedule (already-CSV Retrosheet data)
 -- ===========================================================================
@@ -497,3 +509,36 @@ CREATE INDEX IF NOT EXISTS substitution_player_name_idx       ON substitution (p
 
 -- game_adjustment
 CREATE INDEX IF NOT EXISTS game_adjustment_adj_type_idx ON game_adjustment (adj_type);
+
+-- ===========================================================================
+-- Game logs (Retrosheet game-log files) — one row per game with the manager of
+-- record and other game-level summary the event files don't carry. A superset
+-- of `game` (covers games with no event file), so it stands alone (no FK).
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS game_log (
+  game_id               text PRIMARY KEY,
+  game_date             date,
+  game_number           smallint,
+  visitor_team          text,
+  home_team             text,
+  visitor_score         smallint,
+  home_score            smallint,
+  park_id               text,
+  attendance            integer,
+  time_of_game_min      integer,
+  visitor_manager_id    text,
+  visitor_manager_name  text,
+  home_manager_id       text,
+  home_manager_name     text,
+  winning_pitcher_id    text,
+  losing_pitcher_id     text,
+  save_pitcher_id       text,
+  visitor_starter_id    text,
+  home_starter_id       text
+);
+CREATE INDEX IF NOT EXISTS game_log_game_date_idx      ON game_log (game_date);
+CREATE INDEX IF NOT EXISTS game_log_home_team_idx      ON game_log (home_team);
+CREATE INDEX IF NOT EXISTS game_log_visitor_team_idx   ON game_log (visitor_team);
+CREATE INDEX IF NOT EXISTS game_log_home_mgr_idx       ON game_log (home_manager_id);
+CREATE INDEX IF NOT EXISTS game_log_visitor_mgr_idx    ON game_log (visitor_manager_id);
+CREATE INDEX IF NOT EXISTS game_log_park_idx           ON game_log (park_id);

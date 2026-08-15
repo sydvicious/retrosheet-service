@@ -6,7 +6,7 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 
 | group_ | ip | runs_allowed | ra9 |
 | --- | --- | --- | --- |
-| NL relievers (all 12 teams) | 5748.3 | 3215 | 5.03 |
+| NL relievers (all 12 teams) | 5690.0 | 3181 | 5.03 |
 | HOU relievers (all games) | 432.0 | 246 | 5.13 |
 | HOU relievers (Ryan starts) | 97.0 | 70 | 6.49 |
 | HOU relievers (non-Ryan starts) | 335.0 | 176 | 4.73 |
@@ -15,9 +15,10 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH nl87 AS (SELECT unnest(ARRAY['ATL','CHN','CIN','HOU','LAN','MON','NYN','PHI','PIT','SDN','SFN','SLN']) AS team),
+WITH nl87 AS (SELECT unnest(ARRAY['ATL','CHN','CIN','HOU','LAN','MON','NYN','PHI','PIT','SDN','SFN','SLN']) AS team), reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'),
 pd87 AS (
   SELECT pd.* FROM pitching_daily pd JOIN nl87 n ON n.team = pd.team
+  JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ),
 ryan_games AS (

@@ -17,14 +17,14 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 | 1976 | 39 | 30.64 | 18 | 30.00 | 7.81 | 4 | 22.2 |
 | 1977 | 37 | 34.38 | 16 | 32.81 | 8.33 | 3 | 18.8 |
 | 1978 | 31 | 32.52 | 11 | 32.45 | 8.42 | 2 | 18.2 |
-| 1979 | 36 | 27.11 | 17 | 28.41 | 7.43 | 4 | 23.5 |
-| 1980 | 37 | 28.03 | 17 | 28.94 | 7.33 | 4 | 23.5 |
-| 1981 | 23 | 28.74 | 16 | 28.63 | 7.50 | 4 | 25.0 |
+| 1979 | 34 | 27.56 | 17 | 28.41 | 7.43 | 4 | 23.5 |
+| 1980 | 35 | 28.06 | 16 | 29.06 | 7.40 | 4 | 25.0 |
+| 1981 | 21 | 28.81 | 15 | 28.60 | 7.40 | 4 | 26.7 |
 | 1982 | 35 | 30.00 | 18 | 30.67 | 7.74 | 4 | 22.2 |
 | 1983 | 29 | 27.72 | 16 | 28.19 | 7.44 | 3 | 18.8 |
 | 1984 | 30 | 25.33 | 15 | 25.13 | 6.47 | 6 | 40.0 |
 | 1985 | 35 | 28.09 | 14 | 26.29 | 6.74 | 6 | 42.9 |
-| 1986 | 32 | 24.38 | 19 | 24.37 | 6.46 | 12 | 63.2 |
+| 1986 | 30 | 24.27 | 18 | 24.06 | 6.31 | 12 | 66.7 |
 | 1987 | 34 | 25.68 | 22 | 25.68 | 6.44 | 12 | 54.5 |
 | 1988 | 33 | 28.18 | 16 | 27.63 | 7.21 | 4 | 25.0 |
 | 1989 | 32 | 30.88 | 15 | 30.47 | 8.02 | 1 | 6.7 |
@@ -37,9 +37,10 @@ _Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`
 <details><summary>SQL</summary>
 
 ```sql
-WITH s AS (
-  SELECT EXTRACT(YEAR FROM game_date)::int AS season, batters_faced, runs, outs
-  FROM pitching_daily WHERE player_id = 'ryann001' AND games_started
+WITH reg AS (SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'), s AS (
+  SELECT EXTRACT(YEAR FROM pd.game_date)::int AS season, pd.batters_faced, pd.runs, pd.outs
+  FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
 )
 SELECT season,
   COUNT(*) AS gs,

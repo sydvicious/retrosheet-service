@@ -9,6 +9,12 @@
 #
 # For a CODE update (new version of this service), use update-service.sh instead.
 # Run from the repo directory. Honors RETROSHEET_DIR (default ./.data).
+#
+# Safety net: if the schema version in the code differs from the one stamped in the
+# database (a structural schema change), the loader forces a full recreate instead
+# of a hot refresh. If you see it do that here, restart the API to re-introspect:
+#   docker compose up -d --force-recreate api mcp
+# (or just run update-service.sh, which does the rebuild + restart for you).
 set -euo pipefail
 
 : "${RETROSHEET_DIR:=./.data}"

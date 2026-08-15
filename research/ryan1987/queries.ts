@@ -30,6 +30,13 @@ export interface Analysis {
 
 const NL87 = `SELECT unnest(ARRAY['ATL','CHN','CIN','HOU','LAN','MON','NYN','PHI','PIT','SDN','SFN','SLN']) AS team`;
 
+/**
+ * Regular season only, per project convention: no All-Star, no postseason.
+ * `game_type` is NULL for regular-season games from 1908-2022 but the literal
+ * 'regular' from 2023 on, so both must be accepted. Every query joins this.
+ */
+const REG = `SELECT game_id FROM game WHERE game_type IS NULL OR game_type = 'regular'`;
+
 /** Runs the season ER/R ratio as a constant multiplier to convert RA/9 to an ERA scale. */
 const ER_RATIO = `SELECT EXTRACT(YEAR FROM game_date)::int AS season,
          SUM(earned_runs)::numeric / NULLIF(SUM(runs), 0) AS er_r
@@ -45,6 +52,7 @@ export const analyses: Analysis[] = [
       "on 1988-93 cannot be back-applied across the enormous 1972-76 Angels workloads or " +
       "the changeup Ryan added in 1981, both of which move pitches-per-PA.",
     sql: `
+WITH reg AS (${REG})
 SELECT EXTRACT(YEAR FROM game_date)::int AS season,
        COUNT(*) FILTER (WHERE games_started) AS gs,
        SUM(batters_faced) FILTER (WHERE games_started) AS bf_in_starts,
@@ -55,8 +63,8 @@ SELECT EXTRACT(YEAR FROM game_date)::int AS season,
        COUNT(*) FILTER (WHERE won) AS w,
        COUNT(*) FILTER (WHERE lost) AS l,
        ROUND(9.0 * SUM(earned_runs) / NULLIF(SUM(outs) / 3.0, 0), 2) AS era
-FROM pitching_daily
-WHERE player_id = 'ryann001'
+FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+WHERE pd.player_id = 'ryann001'
 GROUP BY 1
 HAVING COUNT(*) FILTER (WHERE games_started) >= 10
 ORDER BY bf_per_start`,
@@ -70,9 +78,10 @@ ORDER BY bf_per_start`,
       "removed before facing 27 batters (i.e. before a third time through the order) " +
       "despite pitching well.",
     sql: `
-WITH s AS (
-  SELECT EXTRACT(YEAR FROM game_date)::int AS season, batters_faced, runs, outs
-  FROM pitching_daily WHERE player_id = 'ryann001' AND games_started
+WITH reg AS (${REG}), s AS (
+  SELECT EXTRACT(YEAR FROM pd.game_date)::int AS season, pd.batters_faced, pd.runs, pd.outs
+  FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
 )
 SELECT season,
   COUNT(*) AS gs,
@@ -96,8 +105,9 @@ FROM s GROUP BY season HAVING COUNT(*) >= 10 ORDER BY season`,
       "the numbers on a familiar scale. era_full reproduces Ryan's published season ERA to " +
       "within ~0.02 as a check.",
     sql: `
-WITH starts AS (
-  SELECT game_id FROM pitching_daily WHERE player_id = 'ryann001' AND games_started
+WITH reg AS (${REG}), starts AS (
+  SELECT pd.game_id FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
 ), allp AS (
   SELECT g.game_id, EXTRACT(YEAR FROM g.game_date)::int AS season, p.play_seq,
          p.outs_on_play, p.runs_on_play,
@@ -140,9 +150,10 @@ WHERE a.gs >= 10 ORDER BY a.season`,
       "because inherited runners who score are charged to the departed starter, which " +
       "flatters relievers and penalises starters.",
     sql: `
-WITH nl87 AS (${NL87}),
+WITH nl87 AS (${NL87}), reg AS (${REG}),
 pd87 AS (
   SELECT pd.* FROM pitching_daily pd JOIN nl87 n ON n.team = pd.team
+  JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ),
 ryan_games AS (
@@ -175,10 +186,10 @@ FROM pd87 WHERE NOT games_started AND team = 'HOU' AND game_id NOT IN (SELECT ga
       "Where charged_er exceeds runs_during, the difference is an inherited runner the bullpen " +
       "let in that still counts against Ryan's ERA.",
     sql: `
-WITH st AS (
-  SELECT game_id, game_date FROM pitching_daily
-  WHERE player_id = 'ryann001' AND games_started
-    AND game_date BETWEEN '1987-01-01' AND '1987-12-31'
+WITH reg AS (${REG}), st AS (
+  SELECT pd.game_id, pd.game_date FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
+    AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), last AS (
   SELECT p.game_id, MAX(p.play_seq) AS last_seq
   FROM play p JOIN st ON st.game_id = p.game_id
@@ -228,10 +239,11 @@ ORDER BY st.game_date`,
       "For every 1987 NL start, the score when the starting pitcher threw his last pitch, " +
       "versus the final result. This is the cleanest measure of what the bullpen cost Ryan.",
     sql: `
-WITH nl87 AS (${NL87}),
+WITH nl87 AS (${NL87}), reg AS (${REG}),
 st AS (
   SELECT pd.game_id, pd.player_id, pd.team
   FROM pitching_daily pd JOIN nl87 n ON n.team = pd.team
+  JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.games_started AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ),
 lastp AS (
@@ -283,15 +295,16 @@ FROM sided GROUP BY 1 ORDER BY 1`,
       "to the NL average. The controlled comparison is Houston's own scoring in Ryan's starts " +
       "versus its other games at the same venue. Note the split leaves only 17 games per cell.",
     sql: `
-WITH nl87 AS (${NL87}),
+WITH nl87 AS (${NL87}), reg AS (${REG}),
 ryan AS (
-  SELECT game_id FROM pitching_daily
-  WHERE player_id = 'ryann001' AND games_started
-    AND game_date BETWEEN '1987-01-01' AND '1987-12-31'
+  SELECT pd.game_id FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
+    AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ),
 tg AS (
   SELECT bd.game_id, bd.team, SUM(bd.runs) AS runs
   FROM batting_daily bd JOIN nl87 n ON n.team = bd.team
+  JOIN reg ON reg.game_id = bd.game_id
   WHERE bd.game_date BETWEEN '1987-01-01' AND '1987-12-31' GROUP BY 1, 2
 ),
 hou AS (
@@ -319,10 +332,11 @@ FROM hou`,
     title: "1987 NL run environment by host park",
     note: "Combined runs per game by home park, establishing the Astrodome's severity.",
     sql: `
-WITH nl87 AS (${NL87}),
+WITH nl87 AS (${NL87}), reg AS (${REG}),
 tg AS (
   SELECT bd.game_id, bd.team, SUM(bd.runs) AS runs
   FROM batting_daily bd JOIN nl87 n ON n.team = bd.team
+  JOIN reg ON reg.game_id = bd.game_id
   WHERE bd.game_date BETWEEN '1987-01-01' AND '1987-12-31' GROUP BY 1, 2
 ),
 gt AS (
@@ -337,10 +351,10 @@ FROM gt WHERE sides = 2 GROUP BY 1 ORDER BY 3`,
     slug: "09-ryan-1987-gamelog",
     title: "Ryan 1987 start-by-start log with bullpen aftermath",
     sql: `
-WITH starts AS (
+WITH reg AS (${REG}), starts AS (
   SELECT pd.game_id, pd.game_date, pd.team, pd.outs, pd.batters_faced,
          pd.runs, pd.earned_runs, pd.strikeouts, pd.walks, pd.won, pd.lost
-  FROM pitching_daily pd
+  FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.player_id = 'ryann001' AND pd.games_started
     AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), pen AS (
@@ -370,9 +384,9 @@ ORDER BY s.game_date`,
       "losses, so the bullpen cannot account for any of his 16 defeats; it only denied him " +
       "wins. The loss column belongs to the offense.",
     sql: `
-WITH st AS (
+WITH reg AS (${REG}), st AS (
   SELECT pd.game_id, pd.team, pd.runs AS ryan_r, pd.outs, pd.won, pd.lost
-  FROM pitching_daily pd
+  FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.player_id = 'ryann001' AND pd.games_started
     AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), tg AS (
@@ -399,8 +413,9 @@ GROUP BY 1 ORDER BY 1`,
       "support column against se: if the five means scatter no more than sampling error " +
       "predicts, there is no real difference to explain.",
     sql: `
-WITH hou_st AS (
+WITH reg AS (${REG}), hou_st AS (
   SELECT pd.game_id, pd.player_id, pd.team FROM pitching_daily pd
+  JOIN reg ON reg.game_id = pd.game_id
   WHERE pd.games_started AND pd.team = 'HOU'
     AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), tg AS (
@@ -440,16 +455,16 @@ GROUP BY 1 HAVING COUNT(*) >= 5 ORDER BY hou_runs_per_start`,
       "baseline underneath a static offense, which is why the NL rank falls four places on a " +
       "0.04 run change.",
     sql: `
-WITH nl AS (${NL87}),
+WITH nl AS (${NL87}), reg AS (${REG}),
 tg AS (
   SELECT bd.game_id, bd.team, EXTRACT(YEAR FROM bd.game_date)::int AS season, SUM(bd.runs) AS runs
-  FROM batting_daily bd JOIN nl n ON n.team = bd.team
+  FROM batting_daily bd JOIN nl n ON n.team = bd.team JOIN reg ON reg.game_id = bd.game_id
   WHERE bd.game_date BETWEEN '1986-01-01' AND '1987-12-31' GROUP BY 1, 2, 3
 ),
 ryan AS (
-  SELECT game_id FROM pitching_daily
-  WHERE player_id = 'ryann001' AND games_started
-    AND game_date BETWEEN '1986-01-01' AND '1987-12-31'
+  SELECT pd.game_id FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
+    AND pd.game_date BETWEEN '1986-01-01' AND '1987-12-31'
 ),
 team_agg AS (SELECT season, team, AVG(runs) AS rpg FROM tg GROUP BY 1, 2),
 ranked AS (SELECT season, team, rpg, RANK() OVER (PARTITION BY season ORDER BY rpg DESC) AS nl_rank FROM team_agg)
@@ -474,13 +489,13 @@ GROUP BY t.season ORDER BY t.season`,
       "post-hoc split prompted by the Astrodome's park effect, so their p-values deserve a " +
       "multiple-comparison discount.",
     sql: `
-WITH ryan AS (
-  SELECT game_id FROM pitching_daily
-  WHERE player_id = 'ryann001' AND games_started
-    AND game_date BETWEEN '1987-01-01' AND '1987-12-31'
+WITH reg AS (${REG}), ryan AS (
+  SELECT pd.game_id FROM pitching_daily pd JOIN reg ON reg.game_id = pd.game_id
+  WHERE pd.player_id = 'ryann001' AND pd.games_started
+    AND pd.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), tg AS (
   SELECT bd.game_id, SUM(bd.runs) AS runs FROM batting_daily bd
-  WHERE bd.team = 'HOU' AND bd.game_date BETWEEN '1987-01-01' AND '1987-12-31' GROUP BY 1
+  JOIN reg ON reg.game_id = bd.game_id WHERE bd.team = 'HOU' AND bd.game_date BETWEEN '1987-01-01' AND '1987-12-31' GROUP BY 1
 ), g2 AS (
   SELECT tg.game_id, tg.runs, (r.game_id IS NOT NULL) AS is_ryan,
          CASE WHEN g.home_team = 'HOU' THEN 'Astrodome' ELSE 'Road' END AS venue
@@ -535,6 +550,7 @@ WITH ryan AS (
          (r.game_id IS NOT NULL) AS is_ryan
   FROM game g LEFT JOIN ryan r ON r.game_id = g.game_id
   WHERE (g.home_team = 'HOU' OR g.visitor_team = 'HOU')
+    AND (g.game_type IS NULL OR g.game_type = 'regular')
     AND g.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), lineups AS (
   SELECT ls.game_id, ls.player_id, ls.fielding_position
@@ -589,6 +605,7 @@ WITH ryan AS (
          (g.home_team = 'HOU') AS at_home, (r.game_id IS NOT NULL) AS is_ryan
   FROM game g LEFT JOIN ryan r ON r.game_id = g.game_id
   WHERE (g.home_team = 'HOU' OR g.visitor_team = 'HOU')
+    AND (g.game_type IS NULL OR g.game_type = 'regular')
     AND g.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 ), lineups AS (
   SELECT h.game_id, h.at_home, h.is_ryan, ls.player_id
@@ -640,6 +657,7 @@ WITH ryan AS (
   JOIN people p ON p.player_id = o.opp_id
   LEFT JOIN ryan r ON r.game_id = g.game_id
   WHERE (g.home_team = 'HOU' OR g.visitor_team = 'HOU')
+    AND (g.game_type IS NULL OR g.game_type = 'regular')
     AND g.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 )
 SELECT CASE WHEN at_home THEN 'Astrodome' ELSE 'Road' END AS venue,
@@ -682,6 +700,7 @@ WITH ryan AS (
   JOIN people p ON p.player_id = o.opp_id
   LEFT JOIN ryan r ON r.game_id = g.game_id
   WHERE (g.home_team = 'HOU' OR g.visitor_team = 'HOU')
+    AND (g.game_type IS NULL OR g.game_type = 'regular')
     AND g.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 )
 SELECT throws AS opposing_hand,

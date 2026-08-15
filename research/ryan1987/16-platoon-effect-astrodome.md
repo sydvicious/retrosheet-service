@@ -35,6 +35,7 @@ WITH ryan AS (
   JOIN people p ON p.player_id = o.opp_id
   LEFT JOIN ryan r ON r.game_id = g.game_id
   WHERE (g.home_team = 'HOU' OR g.visitor_team = 'HOU')
+    AND (g.game_type IS NULL OR g.game_type = 'regular')
     AND g.game_date BETWEEN '1987-01-01' AND '1987-12-31'
 )
 SELECT CASE WHEN at_home THEN 'Astrodome' ELSE 'Road' END AS venue,

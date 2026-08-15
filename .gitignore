@@ -147,7 +147,7 @@ vite.config.ts.timestamp-*
 # ---------------------------------------------------------------------------
 
 # Retrosheet source data (fetched, not committed — separately copyrighted)
-/.data/
+/.data
 # legacy location (pre-.data rename); keep ignored so it's never committed
 /data/
 
