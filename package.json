@@ -23,6 +23,7 @@
     "validate:plays": "tsx src/tools/validate-plays.ts",
     "audit:plays": "tsx src/tools/audit-plays.ts",
     "validate:fielding": "tsx src/tools/validate-fielding.ts",
+    "research:ryan1987": "tsx research/ryan1987/run.ts",
     "lint": "eslint ."
   },
   "dependencies": {
