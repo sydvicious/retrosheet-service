@@ -37,7 +37,7 @@ function game(events: string[]): PlayRow[] {
     data: [],
     adjustments: [],
   };
-  return replayGame(g);
+  return replayGame(g).plays;
 }
 
 describe("replayGame — implicit stolen-base advances", () => {
@@ -88,6 +88,44 @@ describe("replayGame — implicit stolen-base advances", () => {
     // SB2 with a throwing error sending the runner to third: explicit wins.
     const rows = game(["S8", "SB2.1-3(E2/TH)"]);
     expect(rows[1]!.run1Dest).toBe(3);
+  });
+
+  it("defensive indifference advances the runner (explicit advance, no steal)", () => {
+    // DI is always written with an explicit advance in the data; the runner must
+    // still advance even though it isn't a stolen base.
+    const rows = game(["S8", "DI.1-2"]);
+    expect(rows[1]!.eventCode).toBe(5); // defensiveIndifference
+    expect(rows[1]!.base1Before).toBe("bat00");
+    expect(rows[1]!.run1Dest).toBe(2);
+  });
+});
+
+describe("replayGame — fielding lines", () => {
+  it("attributes putouts/assists and innings to the stationed fielders", () => {
+    const homeStarts = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((pos) => ({
+      playerId: `h${pos}`, playerName: "", side: 1, battingOrder: pos, fieldingPosition: pos,
+    }));
+    const g: ParsedGame = {
+      gameId: "TST202401010",
+      info: [],
+      starts: [...homeStarts, { playerId: "vP", playerName: "", side: 0, battingOrder: 0, fieldingPosition: 1 }],
+      subs: [],
+      plays: [
+        { seq: 1, inning: 1, half: 0, batterId: "v1", count: "??", pitches: "", event: "63/G6" },
+        { seq: 2, inning: 1, half: 0, batterId: "v2", count: "??", pitches: "", event: "K" },
+      ],
+      comments: [], data: [], adjustments: [],
+    };
+    const { fielding } = replayGame(g);
+    const at = (player: string): (typeof fielding)[number] | undefined => fielding.find((f) => f.playerId === player);
+    // 6-3 groundout: assist to short, putout to first.
+    expect(at("h6")).toMatchObject({ position: 6, a: 1, po: 0, gamesStarted: true });
+    expect(at("h3")).toMatchObject({ position: 3, po: 1, a: 0 });
+    // Strikeout: putout to the catcher.
+    expect(at("h2")).toMatchObject({ position: 2, po: 1 });
+    // Innings-at-position: both outs logged for every stationed fielder.
+    expect(at("h8")).toMatchObject({ position: 8, outs: 2, po: 0, a: 0 });
+    expect(at("h6")!.outs).toBe(2);
   });
 });
 

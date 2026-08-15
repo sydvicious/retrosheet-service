@@ -24,11 +24,13 @@ Built in phases:
   Chadwick oracle) + game replay → the `play` table (event type, outs, RBIs,
   base state, pitcher, runner destinations). Ongoing refinement via
   `npm run validate:plays` and `npm run audit:plays`.
-- **Phase 4 — daily stat lines** ✅ per-player-per-game **batting** and
-  **pitching** lines (`batting_daily`, `pitching_daily`), aggregated in pure SQL
-  from the `play` table on every load — no new parsing. Exposed over GraphQL and
-  via the `player_stats` / `player_game_log` MCP tools. (Fielding PO/A/E lines are
-  deferred: they need the parsed fielder sequence, which `play` doesn't persist.)
+- **Phase 4 — daily stat lines** ✅ per-player-per-game **batting**, **pitching**,
+  and **fielding** lines (`batting_daily`, `pitching_daily`, `fielding_daily`).
+  Batting/pitching are aggregated in pure SQL from the `play` table; fielding
+  (PO/A/E/DP/TP/PB/XI per position, innings, GS) is derived in the game replay,
+  which tracks the full defensive alignment. Exposed over GraphQL and via the
+  `player_stats` / `player_game_log` MCP tools. Fielding-credit parity vs the
+  Chadwick oracle is scored by `npm run validate:fielding` (~99.9%).
 - **Phase 5 — web front-end** ⏳
 
 ## Design notes
@@ -226,8 +228,8 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io) server let
 Claude (and other MCP clients) query the mart directly. Tools: `describe_schema`,
 `query_sql` (guarded read-only SELECT), `search_people`, `get_person`, `get_team`,
 `get_roster`, `find_games`, `get_game`, `player_games`, `player_stats`
-(season-by-season batting + pitching totals with AVG/OBP/SLG, ERA/WHIP), and
-`player_game_log` (per-game daily lines).
+(season-by-season batting + pitching + fielding totals with AVG/OBP/SLG, ERA/WHIP,
+fielding pct), and `player_game_log` (per-game batting/pitching/fielding lines).
 
 **Remote (streamable HTTP, e.g. over Tailscale) — containerized:**
 
@@ -263,8 +265,9 @@ npm run typecheck     # tsc, no emit
 npm test              # vitest — parser unit tests against golden fixtures
 npm run build         # tsc -> dist/
 npm run mcp           # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
-npm run validate:plays  # dev-only: parser parity vs committed Chadwick goldens
-npm run audit:plays     # dev-only: log plays the parser doesn't fully understand
+npm run validate:plays    # dev-only: play-parser parity vs Chadwick goldens
+npm run validate:fielding # dev-only: fielding-credit parity vs Chadwick goldens
+npm run audit:plays       # dev-only: log plays the parser doesn't fully understand
 ```
 
 `audit:plays` replays the real event files (`RETROSHEET_DIR=…`) and reports plays
@@ -284,8 +287,6 @@ database.
   resolving pinch-runner identity by lineup slot. `npm run audit:plays` tracks the
   remaining long tail (currently ~0.04% of plays have an impossible out-count from
   rare encodings / genuine 4-out appeal plays).
-- **Fielding daily lines** — PO/A/E/DP per position, once the parsed fielder
-  sequence is persisted on `play` (Phase 4 currently covers batting + pitching).
 - **Phase 5** — the web front-end.
 
 ## Retrosheet terms of use

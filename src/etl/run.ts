@@ -33,7 +33,7 @@ const ALL_TABLES = [
   "people", "teams", "ballparks", "coaches", "ejections", "relatives",
   "roster", "schedule", "game", "game_info", "lineup_start", "substitution",
   "comment", "earned_runs", "game_adjustment", "play",
-  "batting_daily", "pitching_daily",
+  "batting_daily", "pitching_daily", "fielding_daily",
 ];
 
 async function main(): Promise<void> {

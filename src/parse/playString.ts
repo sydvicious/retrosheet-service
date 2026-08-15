@@ -55,6 +55,17 @@ export interface SubEvent {
   modifiers: string[]; // tokens after '/', e.g. ['GDP','G3']
 }
 
+/** Fielding credit for one position on a play (1-9). DP/TP credit is applied at
+ * aggregation time (each fielder with a PO/A on a DP/TP play), not here. */
+export interface FieldingCredit {
+  position: number; // 1-9
+  po: number; // putouts
+  assist: number; // assists
+  error: number; // errors
+  pb: number; // passed balls (catcher only)
+  xi: number; // interference (catcher's interference; charged as an error too)
+}
+
 export interface ParsedPlay {
   raw: string;
   events: SubEvent[];
@@ -72,6 +83,7 @@ export interface ParsedPlay {
   outsOnPlay: number;
   rbi: number;
   batterReached: boolean;
+  fielding: FieldingCredit[]; // putout/assist/error credits by position
 }
 
 /** Split on a delimiter char, but not when inside parentheses. */
@@ -197,6 +209,155 @@ const NAME_BY_CODE: Record<number, string> = Object.fromEntries(
   Object.entries(EVENT_CD).map(([k, v]) => [v, k]),
 );
 
+// ---- Fielding credits ------------------------------------------------------
+// Derived clean-room from the Retrosheet spec's fielder notation. Putout/assist
+// logic: fielders who handle the ball before an out get assists; the fielder who
+// records the out (marked by a following "(base)", or the last fielder when the
+// play makes an out) gets the putout; "E" marks an error by the next fielder.
+// Correctness here is iterative — scored against the Chadwick oracle via
+// `npm run validate:fielding`.
+
+type CreditMap = Map<number, FieldingCredit>;
+
+function credit(map: CreditMap, pos: number, kind: "po" | "assist" | "error" | "pb" | "xi"): void {
+  let c = map.get(pos);
+  if (!c) {
+    c = { position: pos, po: 0, assist: 0, error: 0, pb: 0, xi: 0 };
+    map.set(pos, c);
+  }
+  c[kind] += 1;
+}
+
+interface SeqToken {
+  err: boolean;
+  fielder: number;
+  base: string | null; // the "(base)" marker, if any
+}
+
+function tokenizeSeq(seq: string): SeqToken[] {
+  const tokens: SeqToken[] = [];
+  const re = /(E)?([1-9])(?:\(([B123])\))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(seq)) !== null) {
+    tokens.push({ err: m[1] === "E", fielder: Number(m[2]), base: m[3] ?? null });
+  }
+  return tokens;
+}
+
+/**
+ * Credit a fielder sequence (e.g. "643", "54(1)3", "26", "E6") into `map`.
+ * `outMade` says whether the sequence records the final out at the last fielder
+ * (true for out basics, caught-stealing/pickoff, and runners retired on an 'X'
+ * advance; false for error-only contexts where nobody is retired).
+ */
+function creditFielderSeq(seq: string, map: CreditMap, outMade: boolean): void {
+  const tokens = tokenizeSeq(seq);
+  const hasError = tokens.some((t) => t.err);
+  let lastFielderIdx = -1;
+  for (let i = 0; i < tokens.length; i++) if (!tokens[i]!.err) lastFielderIdx = i;
+
+  let chain: number[] = []; // fielders handling since the last putout
+  const assistChain = (except: number): void => {
+    const seen = new Set<number>();
+    for (const p of chain) {
+      if (p !== except && !seen.has(p)) {
+        credit(map, p, "assist");
+        seen.add(p);
+      }
+    }
+  };
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (t.err) {
+      credit(map, t.fielder, "error");
+      // Fielders who handled the ball before the muffed play still get assists.
+      assistChain(t.fielder);
+      chain = [];
+      continue;
+    }
+    chain.push(t.fielder);
+    // A "(base)" always marks a putout; a bare trailing fielder makes the final
+    // out only when the play recorded one and wasn't negated by an error.
+    const isPutout = t.base !== null || (outMade && !hasError && i === lastFielderIdx);
+    if (isPutout) {
+      credit(map, t.fielder, "po");
+      assistChain(t.fielder);
+      chain = [t.fielder]; // a relay: this fielder can assist the next putout
+    }
+  }
+}
+
+/** Content of the first "(...)" in a basic, e.g. "CS2(26)" -> "26". */
+function parenParam(basic: string): string | null {
+  const m = /\(([^)]*)\)/.exec(basic);
+  return m ? (m[1] ?? "") : null;
+}
+
+function computeFielding(
+  events: SubEvent[],
+  advances: Advance[],
+  primary: BasicClass,
+  primaryBasic: string,
+  batterReached: boolean,
+  batterAdvance: Advance | undefined,
+  passedBall: boolean,
+): FieldingCredit[] {
+  const map: CreditMap = new Map();
+
+  // Passed balls are charged to the catcher (position 2).
+  if (passedBall) credit(map, 2, "pb");
+
+  // Primary batter event. "99" is Retrosheet's unknown-fielder out — no credit.
+  if (primary.code === EVENT_CD.genericOut) {
+    if (primaryBasic !== "99") creditFielderSeq(primaryBasic, map, true);
+  } else if (primary.code === EVENT_CD.strikeout && !batterReached && !batterAdvance?.out) {
+    credit(map, 2, "po"); // strikeout: putout to the catcher
+  } else if (primary.code === EVENT_CD.error || primary.code === EVENT_CD.foulError) {
+    creditFielderSeq(primaryBasic, map, false); // "E6" / "FLE6" — error, no putout
+  }
+
+  // Errors recorded as event modifiers, e.g. catcher's interference "C/E2".
+  // Catcher's/fielder's interference is ALSO counted as a distinct `xi` stat
+  // (Chadwick records it both as an error and as interference).
+  let interferenceCharged = false;
+  for (const e of events) {
+    const isInterference = classifyBasic(e.basic).code === EVENT_CD.interference;
+    for (const mod of e.modifiers) {
+      const m = /^E([1-9])$/.exec(mod);
+      if (m) {
+        credit(map, Number(m[1]), "error");
+        if (isInterference) {
+          credit(map, Number(m[1]), "xi");
+          interferenceCharged = true;
+        }
+      }
+    }
+  }
+  // Interference with no explicit "E<pos>" modifier defaults to the catcher.
+  if (primary.code === EVENT_CD.interference && !interferenceCharged) credit(map, 2, "xi");
+
+  // Running-event putouts: CS / PO / POCS carry a fielder sequence in parens; an
+  // error in it negates the out (runner safe).
+  for (const e of events) {
+    const c = classifyBasic(e.basic);
+    if (c.code === EVENT_CD.caughtStealing || c.code === EVENT_CD.pickoff) {
+      const param = parenParam(e.basic);
+      if (param) creditFielderSeq(param, map, !/E/.test(param));
+    }
+  }
+
+  // Runner/batter putouts and errors recorded in advance parentheticals:
+  // "1X2(64)" (runner out), "B-1(E4)" / "2-H(E6)" (error). An 'X' advance makes
+  // an out at the last fielder; a non-out advance only carries errors.
+  for (const a of advances) {
+    for (const param of a.params) {
+      if (/^[1-9E]/.test(param)) creditFielderSeq(param, map, a.out);
+    }
+  }
+
+  return [...map.values()].sort((x, y) => x.position - y.position);
+}
+
 export function parseEvent(rawInput: string): ParsedPlay {
   const raw = rawInput;
   const cleaned = stripAnnotations(rawInput.trim());
@@ -312,5 +473,6 @@ export function parseEvent(rawInput: string): ParsedPlay {
     outsOnPlay,
     rbi,
     batterReached,
+    fielding: computeFielding(events, advances, primary, primaryEvent?.basic ?? "", batterReached, batterAdvance, passedBall),
   };
 }

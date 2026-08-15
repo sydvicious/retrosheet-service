@@ -25,7 +25,13 @@ export interface EventCounts {
   earned_runs: number;
   game_adjustment: number;
   play: number;
+  fielding_daily: number;
 }
+
+const FIELDING_COLS = [
+  "game_id", "player_id", "team", "game_date", "position", "side",
+  "games", "games_started", "outs", "po", "a", "e", "dp", "tp", "pb", "xi",
+];
 
 const PLAY_COLS = [
   "game_id", "play_seq", "inning", "half", "batter_id", "pitcher_id",
@@ -136,7 +142,7 @@ export async function loadEvents(
 ): Promise<EventCounts> {
   const counts: EventCounts = {
     game: 0, game_info: 0, lineup_start: 0, substitution: 0,
-    comment: 0, earned_runs: 0, game_adjustment: 0, play: 0,
+    comment: 0, earned_runs: 0, game_adjustment: 0, play: 0, fielding_daily: 0,
   };
 
   const years = seasonYears(root).filter((y) => !seasons || seasons.has(y));
@@ -153,10 +159,15 @@ export async function loadEvents(
       const erRows: (string | null)[][] = [];
       const adjRows: (string | null)[][] = [];
       const playRows: (string | null)[][] = [];
+      const fieldingRows: (string | null)[][] = [];
 
       for (const g of games) {
         if (g.gameId === "") continue;
         gameRows.push(gameRow(g));
+        const info = new Map(g.info);
+        const visteam = info.get("visteam") ?? null;
+        const hometeam = info.get("hometeam") ?? null;
+        const gameDate = slashDateToIso(info.get("date"));
         for (const [k, v] of g.info) infoRows.push([g.gameId, k, v]);
         for (const s of g.starts) {
           startRows.push([g.gameId, s.playerId, s.playerName, num(s.side), num(s.battingOrder), num(s.fieldingPosition)]);
@@ -171,7 +182,8 @@ export async function loadEvents(
         for (const a of g.adjustments) {
           adjRows.push([g.gameId, String(a.seq), a.type, a.field1, a.field2]);
         }
-        for (const r of replayGame(g)) {
+        const replay = replayGame(g);
+        for (const r of replay.plays) {
           playRows.push([
             r.gameId, String(r.playSeq), num(r.inning), num(r.half), r.batterId, r.pitcherId,
             num(r.outsBefore), num(r.balls), num(r.strikes), r.pitchSeq, r.event, num(r.eventCode),
@@ -180,6 +192,13 @@ export async function loadEvents(
             num(r.runsOnPlay), num(r.awayScoreBefore), num(r.homeScoreBefore), r.base1Before,
             r.base2Before, r.base3Before, num(r.batterDest), num(r.run1Dest), num(r.run2Dest),
             num(r.run3Dest),
+          ]);
+        }
+        for (const fl of replay.fielding) {
+          fieldingRows.push([
+            g.gameId, fl.playerId, fl.side === 0 ? visteam : hometeam, gameDate,
+            num(fl.position), num(fl.side), num(fl.games), b(fl.gamesStarted), num(fl.outs),
+            num(fl.po), num(fl.a), num(fl.e), num(fl.dp), num(fl.tp), num(fl.pb), num(fl.xi),
           ]);
         }
       }
@@ -193,6 +212,7 @@ export async function loadEvents(
       if (erRows.length) counts.earned_runs += await copyRows(client, "earned_runs", ["game_id", "player_id", "earned_runs"], erRows);
       if (adjRows.length) counts.game_adjustment += await copyRows(client, "game_adjustment", ["game_id", "seq", "adj_type", "field1", "field2"], adjRows);
       if (playRows.length) counts.play += await copyRows(client, "play", PLAY_COLS, playRows);
+      if (fieldingRows.length) counts.fielding_daily += await copyRows(client, "fielding_daily", FIELDING_COLS, fieldingRows);
 
       // Update shared progress after each file so the heartbeat clock advances.
       if (progress) {

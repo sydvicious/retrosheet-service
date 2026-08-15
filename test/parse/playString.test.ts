@@ -166,3 +166,66 @@ describe("parseEvent — advance parsing", () => {
     expect(p.advances[1]).toMatchObject({ from: "2", to: "3", out: true, params: ["64"] });
   });
 });
+
+describe("parseEvent — fielding credits", () => {
+  // Compact view: { position: "po-assist-error" }.
+  const field = (ev: string): Record<number, string> => {
+    const out: Record<number, string> = {};
+    for (const c of parseEvent(ev).fielding) out[c.position] = `${c.po}-${c.assist}-${c.error}`;
+    return out;
+  };
+
+  it("groundout 6-3: assist to short, putout to first", () => {
+    expect(field("63/G6")).toEqual({ 6: "0-1-0", 3: "1-0-0" });
+  });
+
+  it("unassisted flyout: putout to the fielder, no assist", () => {
+    expect(field("8/F")).toEqual({ 8: "1-0-0" });
+  });
+
+  it("6-4-3 double play credits both assists and both putouts", () => {
+    expect(field("64(1)3/GDP")).toEqual({ 6: "0-1-0", 4: "1-1-0", 3: "1-0-0" });
+  });
+
+  it("a hit produces no fielding credit (the digit is location)", () => {
+    expect(field("S8")).toEqual({});
+  });
+
+  it("strikeout is a putout for the catcher", () => {
+    expect(field("K")).toEqual({ 2: "1-0-0" });
+  });
+
+  it("dropped third strike thrown out: catcher assist, first-base putout", () => {
+    expect(field("K.BX1(23)")).toEqual({ 2: "0-1-0", 3: "1-0-0" });
+  });
+
+  it("plain error charges the fielder and records no putout", () => {
+    expect(field("E6")).toEqual({ 6: "0-0-1" });
+  });
+
+  it("caught stealing: catcher assist, tag putout", () => {
+    expect(field("CS2(26)")).toEqual({ 2: "0-1-0", 6: "1-0-0" });
+  });
+
+  it("pickoff: assist and putout from the parenthetical fielders", () => {
+    expect(field("PO1(13)")).toEqual({ 1: "0-1-0", 3: "1-0-0" });
+  });
+
+  it("runner thrown out on the bases after a hit is credited from the advance", () => {
+    expect(field("S8.2X3(65)")).toEqual({ 6: "0-1-0", 5: "1-0-0" });
+  });
+
+  it("an error in an advance parenthetical charges that fielder", () => {
+    expect(field("D7.2-H(E5)")).toEqual({ 5: "0-0-1" });
+  });
+
+  it("passed ball is charged to the catcher", () => {
+    const c = parseEvent("PB.2-3").fielding.find((x) => x.position === 2);
+    expect(c).toMatchObject({ position: 2, pb: 1, po: 0, assist: 0, error: 0 });
+  });
+
+  it("catcher's interference is both an error and an interference on the catcher", () => {
+    const c = parseEvent("C/E2.B-1").fielding.find((x) => x.position === 2);
+    expect(c).toMatchObject({ position: 2, error: 1, xi: 1, po: 0, assist: 0 });
+  });
+});

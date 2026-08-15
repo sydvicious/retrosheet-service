@@ -49,6 +49,28 @@ export interface PlayRow {
   run3Dest: number;
 }
 
+/** One player's fielding line at one position in a game (see fielding_daily). */
+export interface FieldingLine {
+  playerId: string;
+  position: number; // 1-9
+  side: number; // fielding side: 0 = visiting, 1 = home
+  games: number; // 1
+  gamesStarted: boolean;
+  outs: number; // defensive outs recorded while stationed (innings = outs/3)
+  po: number;
+  a: number;
+  e: number;
+  dp: number;
+  tp: number;
+  pb: number;
+  xi: number;
+}
+
+export interface ReplayResult {
+  plays: PlayRow[];
+  fielding: FieldingLine[];
+}
+
 function baseNum(to: string): number {
   return to === "H" ? 4 : Number(to);
 }
@@ -118,15 +140,38 @@ interface TimelinePlay {
   event: string;
 }
 
-export function replayGame(game: ParsedGame): PlayRow[] {
+export function replayGame(game: ParsedGame): ReplayResult {
   const rows: PlayRow[] = [];
   const bases: (string | null)[] = [null, null, null, null]; // index 1..3 used
-  const pitchers: (string | null)[] = [null, null]; // by team side (0 visitor, 1 home)
+  // Full defensive alignment by [side][position 1..9]; position 1 is the pitcher.
+  // This is the general game-state scaffolding (who's at each position) that the
+  // fielding lines consume and a future full-state project can build on.
+  const fielders: (string | null)[][] = [new Array<string | null>(10).fill(null), new Array<string | null>(10).fill(null)];
   const score: [number, number] = [0, 0];
 
-  // Starting pitchers.
+  // Fielding lines, keyed by player|position (a player fields for one side).
+  const lines = new Map<string, FieldingLine>();
+  const getLine = (side: number, player: string, pos: number): FieldingLine => {
+    const key = `${player}|${pos}`;
+    let l = lines.get(key);
+    if (!l) {
+      l = { playerId: player, position: pos, side, games: 1, gamesStarted: false, outs: 0, po: 0, a: 0, e: 0, dp: 0, tp: 0, pb: 0, xi: 0 };
+      lines.set(key, l);
+    }
+    return l;
+  };
+  const setFielder = (side: number | null, pos: number | null, player: string): void => {
+    if (side === null || pos === null || pos < 1 || pos > 9) return; // 10 DH, 11 PH, 12 PR don't field
+    fielders[side]![pos] = player;
+    getLine(side, player, pos); // records the appearance (games = 1)
+  };
+
+  // Starting fielders.
   for (const s of game.starts) {
-    if (s.fieldingPosition === 1 && s.side !== null) pitchers[s.side] = s.playerId;
+    setFielder(s.side, s.fieldingPosition, s.playerId);
+    if (s.side !== null && s.fieldingPosition !== null && s.fieldingPosition >= 1 && s.fieldingPosition <= 9) {
+      getLine(s.side, s.playerId, s.fieldingPosition).gamesStarted = true;
+    }
   }
 
   // Merge subs and plays into one time-ordered stream.
@@ -152,7 +197,7 @@ export function replayGame(game: ParsedGame): PlayRow[] {
 
   for (const item of timeline) {
     if (item.kind === "sub") {
-      if (item.fieldingPosition === 1 && item.side !== null) pitchers[item.side] = item.playerId;
+      setFielder(item.side, item.fieldingPosition, item.playerId);
       continue;
     }
     const play = item;
@@ -167,7 +212,7 @@ export function replayGame(game: ParsedGame): PlayRow[] {
     }
 
     const fielding = 1 - play.half;
-    const pitcherId = pitchers[fielding] ?? null;
+    const pitcherId = fielders[fielding]![1] ?? null;
     const [balls, strikes] = parseCount(play.count);
     const p = parseEvent(eventText);
 
@@ -229,6 +274,29 @@ export function replayGame(game: ParsedGame): PlayRow[] {
     else score[0] += runs;
     outs += p.outsOnPlay;
 
+    // Fielding: every stationed defender logs the play's outs (innings played),
+    // and each parser fielding-credit is attributed to whoever holds that
+    // position on the defensive side. DP/TP credit goes to each fielder with a
+    // putout or assist on the play.
+    for (let pos = 1; pos <= 9; pos++) {
+      const pid = fielders[fielding]![pos];
+      if (pid) getLine(fielding, pid, pos).outs += p.outsOnPlay;
+    }
+    for (const fc of p.fielding) {
+      const pid = fielders[fielding]![fc.position];
+      if (!pid) continue;
+      const l = getLine(fielding, pid, fc.position);
+      l.po += fc.po;
+      l.a += fc.assist;
+      l.e += fc.error;
+      l.pb += fc.pb;
+      l.xi += fc.xi;
+      if (fc.po > 0 || fc.assist > 0) {
+        if (p.doublePlay) l.dp += 1;
+        if (p.triplePlay) l.tp += 1;
+      }
+    }
+
     rows.push({
       gameId: game.gameId,
       playSeq: playSeq++,
@@ -270,5 +338,5 @@ export function replayGame(game: ParsedGame): PlayRow[] {
     bases[3] = next[3] ?? null;
   }
 
-  return rows;
+  return { plays: rows, fielding: [...lines.values()] };
 }

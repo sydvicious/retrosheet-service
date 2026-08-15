@@ -184,8 +184,9 @@ export function buildServer(pool: Pool, schema: string): McpServer {
     {
       title: "Player stats",
       description:
-        "Season-by-season batting AND pitching totals for a player id, from the daily " +
-        "stat lines, with rate stats (AVG/OBP/SLG, ERA/WHIP). Optionally limit to one year.",
+        "Season-by-season batting, pitching AND fielding totals for a player id, from the " +
+        "daily stat lines, with rate stats (AVG/OBP/SLG, ERA/WHIP, fielding pct). " +
+        "Optionally limit to one year.",
       inputSchema: {
         player_id: z.string(),
         year: z.number().int().optional().describe("Limit to a single season."),
@@ -205,11 +206,11 @@ export function buildServer(pool: Pool, schema: string): McpServer {
     {
       title: "Player game log",
       description:
-        "Per-game daily stat lines (a game log) for a player id — batting or pitching, " +
-        "optionally limited to a year.",
+        "Per-game daily stat lines (a game log) for a player id — batting, pitching, or " +
+        "fielding, optionally limited to a year.",
       inputSchema: {
         player_id: z.string(),
-        kind: z.enum(["batting", "pitching"]).optional()
+        kind: z.enum(["batting", "pitching", "fielding"]).optional()
           .describe("Which lines to return (default batting)."),
         year: z.number().int().optional(),
         limit: z.number().int().min(1).max(MAX_ROWS).optional(),

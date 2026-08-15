@@ -389,6 +389,36 @@ CREATE INDEX IF NOT EXISTS pitching_daily_game_date_idx  ON pitching_daily (game
 CREATE INDEX IF NOT EXISTS pitching_daily_strikeouts_idx ON pitching_daily (strikeouts);
 CREATE INDEX IF NOT EXISTS pitching_daily_outs_idx       ON pitching_daily (outs);
 
+-- Fielding line per (game, player, position) — a player can log innings at
+-- several positions in a game. Computed in the replay (gameState.ts), which is
+-- the only place that knows who is stationed where, then COPYed during the load
+-- (not SQL-aggregated from play like batting/pitching). outs → innings (outs/3);
+-- dp/tp credit each fielder with a PO/A on a double/triple play; pb/xi are
+-- catcher stats. Fielding-credit parity is scored by npm run validate:fielding.
+CREATE TABLE IF NOT EXISTS fielding_daily (
+  game_id       text NOT NULL REFERENCES game (game_id),
+  player_id     text NOT NULL,
+  team          text,
+  game_date     date,
+  position      smallint NOT NULL,   -- 1-9
+  side          smallint,            -- fielding side: 0 = visiting, 1 = home
+  games         smallint NOT NULL DEFAULT 0,
+  games_started boolean  NOT NULL DEFAULT false,
+  outs          integer  NOT NULL DEFAULT 0,   -- defensive outs while stationed
+  po            integer  NOT NULL DEFAULT 0,
+  a             integer  NOT NULL DEFAULT 0,
+  e             integer  NOT NULL DEFAULT 0,
+  dp            integer  NOT NULL DEFAULT 0,
+  tp            integer  NOT NULL DEFAULT 0,
+  pb            integer  NOT NULL DEFAULT 0,   -- passed balls (catcher)
+  xi            integer  NOT NULL DEFAULT 0,   -- interference (catcher)
+  PRIMARY KEY (game_id, player_id, position)
+);
+CREATE INDEX IF NOT EXISTS fielding_daily_player_id_idx ON fielding_daily (player_id);
+CREATE INDEX IF NOT EXISTS fielding_daily_team_idx      ON fielding_daily (team);
+CREATE INDEX IF NOT EXISTS fielding_daily_game_date_idx ON fielding_daily (game_date);
+CREATE INDEX IF NOT EXISTS fielding_daily_position_idx  ON fielding_daily (position);
+
 -- ===========================================================================
 -- Additional query / sort indexes. This is a read-heavy, regenerable mart, so
 -- we index generously: every indexed column also becomes a GraphQL

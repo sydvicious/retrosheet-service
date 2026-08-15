@@ -173,7 +173,7 @@ export async function playerStats(
   pool: Pool,
   playerId: string,
   year: number | undefined,
-): Promise<{ batting: unknown[]; pitching: unknown[] }> {
+): Promise<{ batting: unknown[]; pitching: unknown[]; fielding: unknown[] }> {
   const batting = await pool.query(
     `SELECT EXTRACT(YEAR FROM game_date)::int AS year,
             count(*) AS g,
@@ -206,18 +206,31 @@ export async function playerStats(
       GROUP BY year ORDER BY year`,
     [playerId, year ?? null],
   );
-  return { batting: batting.rows, pitching: pitching.rows };
+  const fielding = await pool.query(
+    `SELECT EXTRACT(YEAR FROM game_date)::int AS year, position,
+            count(*) AS g, sum(games_started::int) AS gs,
+            round(sum(outs)::numeric / 3, 1) AS innings,
+            sum(po) AS po, sum(a) AS a, sum(e) AS e, sum(dp) AS dp, sum(tp) AS tp,
+            sum(pb) AS pb, sum(xi) AS xi,
+            round((sum(po) + sum(a))::numeric / NULLIF(sum(po) + sum(a) + sum(e), 0), 3) AS fld_pct
+       FROM fielding_daily
+      WHERE player_id = $1 AND ($2::int IS NULL OR EXTRACT(YEAR FROM game_date) = $2)
+      GROUP BY year, position ORDER BY year, position`,
+    [playerId, year ?? null],
+  );
+  return { batting: batting.rows, pitching: pitching.rows, fielding: fielding.rows };
 }
 
 /** Per-game daily stat lines (game log) for a player — batting or pitching. */
 export async function playerGameLog(
   pool: Pool,
   playerId: string,
-  kind: "batting" | "pitching",
+  kind: "batting" | "pitching" | "fielding",
   year: number | undefined,
   limit: number,
 ): Promise<unknown[]> {
-  const table = kind === "pitching" ? "pitching_daily" : "batting_daily";
+  const table =
+    kind === "pitching" ? "pitching_daily" : kind === "fielding" ? "fielding_daily" : "batting_daily";
   const res = await pool.query(
     `SELECT d.*, g.visitor_team, g.home_team
        FROM ${table} d JOIN game g ON g.game_id = d.game_id

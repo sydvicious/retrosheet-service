@@ -112,7 +112,7 @@ function main(): void {
             record("unparsed_advance", { gameId: g.gameId, event: ev, detail: bad.join(","), comment: commentAfter(g, pr.seq) });
           }
         }
-        for (const row of replayGame(g)) {
+        for (const row of replayGame(g).plays) {
           if (row.outsBefore + row.outsOnPlay > 3) {
             record("outs_overflow", {
               gameId: g.gameId, event: row.event,
