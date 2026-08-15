@@ -5,7 +5,7 @@
 
 **56 Hall of Famers** seen take the field, across ~267 attended MLB games
 (1975–2024). The full list is in [01-hall-of-famers.md](01-hall-of-famers.md);
-this is the interpretation.
+this is the interpretation. Players only — see the note on managers below.
 
 ## The arc
 
@@ -46,9 +46,32 @@ call.
 Two box-score links in the log were internally inconsistent (right team, wrong
 date) — see [bad-links.md](bad-links.md). Corrected in the source spreadsheet.
 
-## Open thread
+## Ordering
 
-**Managers.** Not yet computable (see README). Loading Retrosheet's game logs
-would add "HOF managers I saw" — and would correct the tempting-but-wrong answer
-from postseason data alone: e.g. Tony La Russa's first sighting is a 1989 A's
-regular-season game at the Coliseum, *not* the 1992 ALCS.
+The checklist is sorted in **Hall of Fame induction order** — the way the
+Cooperstown Plaque Gallery itself is arranged (chronological by class, the 1936
+inaugural five in the center of the rotunda) — so it reads as a walking route past
+the plaques. The induction *year* is the one field Retrosheet doesn't ship in its
+data (the `biofile` HOF column is a bare yes/no); it's on their website but not the
+repo, so each player's year was fetched once from their Retrosheet bio page and
+cached in `hof-induction.ts`.
+
+## Managers (deliberately excluded)
+
+The checklist is **players only**. Managers are a different kind of sighting —
+seeing a Hall of Famer *manage* isn't the same as the plaque you check off — so
+they're left off. That decision also sidesteps a data trap worth recording:
+Retrosheet's `hof` flag is binary (in / not in), with **no induction category**,
+and the category can't be inferred — **130 HOF people carry a `mgr_debut`**
+(player-managers, plus modern coaches with a one-game acting-manager stint — even
+Robin Yount has one), while only ~22 were enshrined *as* managers. So "HOF
+managers I saw" can't be answered by the flag alone; it needs the curated
+manager-inductee list in `hof-managers.ts`.
+
+Both pieces are **retained for future queries**: the manager-of-record data lives
+in the mart's `game_log` table, and `hof-managers.ts` holds the curated list. For
+the record, the seven HOF *managers* seen (by that method) were Sparky Anderson,
+Bobby Cox, Whitey Herzog, Tony La Russa, Tommy Lasorda, Jim Leyland, and Joe Torre
+— and the game logs correct a tempting-but-wrong postseason answer: La Russa's
+first sighting is a **1989 A's regular-season game at the Coliseum**, not the 1992
+ALCS.
