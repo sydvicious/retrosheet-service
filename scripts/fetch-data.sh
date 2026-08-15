@@ -35,16 +35,33 @@ echo "Retrosheet data ready in $DATA_DIR"
 if [ -d "$DATA_DIR/seasons" ] && command -v curl >/dev/null 2>&1; then
   GLDIR="$DATA_DIR/gamelog"
   mkdir -p "$GLDIR"
-  fetched=0
+  # First pass: which season years still need a game-log file? Count them so the
+  # download can show "[i/total]" progress — a silent multi-minute fetch (155
+  # files on a first run) reads as a hang otherwise.
+  missing=""
+  total=0
   for y in $(ls "$DATA_DIR/seasons" | grep -E '^[0-9]{4}$' | sort); do
-    ls "$GLDIR"/gl"${y}".txt >/dev/null 2>&1 && continue
-    if curl -fsSL "https://www.retrosheet.org/gamelogs/gl${y}.zip" -o "$GLDIR/gl${y}.zip" 2>/dev/null; then
-      command -v unzip >/dev/null 2>&1 && unzip -oq "$GLDIR/gl${y}.zip" -d "$GLDIR"
-      rm -f "$GLDIR/gl${y}.zip"
-      fetched=$((fetched + 1))
+    if ls "$GLDIR"/gl"${y}".txt >/dev/null 2>&1; then
+      continue
     fi
+    missing="$missing $y"
+    total=$((total + 1))
   done
-  if [ "$fetched" -gt 0 ]; then
-    echo "Fetched $fetched new game-log year(s) into $GLDIR"
+  if [ "$total" -gt 0 ]; then
+    echo "Fetching $total game-log year(s) from retrosheet.org into $GLDIR …"
+    fetched=0
+    i=0
+    for y in $missing; do
+      i=$((i + 1))
+      if curl -fsSL "https://www.retrosheet.org/gamelogs/gl${y}.zip" -o "$GLDIR/gl${y}.zip" 2>/dev/null; then
+        command -v unzip >/dev/null 2>&1 && unzip -oq "$GLDIR/gl${y}.zip" -d "$GLDIR"
+        rm -f "$GLDIR/gl${y}.zip"
+        fetched=$((fetched + 1))
+        echo "  … [$i/$total] gl${y}"
+      else
+        echo "  … [$i/$total] gl${y} — not available, skipped"
+      fi
+    done
+    echo "Fetched $fetched of $total game-log year(s) into $GLDIR"
   fi
 fi
