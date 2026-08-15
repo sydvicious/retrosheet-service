@@ -1,6 +1,6 @@
 # Runs charged to Ryan in 1987 that his relievers actually allowed
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Identifies runners on base when Ryan left each start, then follows those exact runner ids through the remaining plays of that half-inning to see whether they scored. Where charged_er exceeds runs_during, the difference is an inherited runner the bullpen let in that still counts against Ryan's ERA.
 

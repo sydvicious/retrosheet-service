@@ -1,6 +1,6 @@
 # Workload conditional on pitching well
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Raw BF/start conflates 'pulled while cruising' with 'knocked out'. This restricts to starts where Ryan allowed <= 2 runs, and counts how often he was removed before facing 27 batters (i.e. before a third time through the order) despite pitching well.
 

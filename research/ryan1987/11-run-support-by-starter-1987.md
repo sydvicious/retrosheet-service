@@ -1,6 +1,6 @@
 # Run support by Houston starter, with opposing-starter quality
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Ryan got the least support of the five Houston starters. The last column tests the one mechanism that would make that systematic rather than luck — an ace drawing the other team's ace — by averaging the season ERA of the opposing starter (150+ outs required to qualify). Higher ERA means weaker opposition. Compare the spread of the support column against se: if the five means scatter no more than sampling error predicts, there is no real difference to explain.
 

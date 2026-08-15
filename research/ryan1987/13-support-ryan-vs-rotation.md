@@ -1,6 +1,6 @@
 # Run support: Ryan vs the rest of the rotation, with venue control
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > The consolidated test. t_stat is a Welch two-sample t against the rest of the rotation. Read the ALL row as the pre-specified comparison; the venue rows are a post-hoc split prompted by the Astrodome's park effect, so their p-values deserve a multiple-comparison discount.
 

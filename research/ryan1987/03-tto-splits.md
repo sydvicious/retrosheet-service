@@ -1,6 +1,6 @@
 # First 18 batters faced vs rest of start, by season
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > bf_idx counts completed plate appearances; runs/outs from baserunning-only plays (wild pitches, steals) are attributed to the batter at the plate rather than dropped. ERA columns are RA/9 scaled by the season's charged-ER/runs ratio. Because that ratio is a constant per season, it cannot create or hide a first-18-vs-rest gap; it only puts the numbers on a familiar scale. era_full reproduces Ryan's published season ERA to within ~0.02 as a check.
 

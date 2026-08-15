@@ -1,6 +1,6 @@
 # Leads held after the starter departs: Ryan vs the 1987 NL
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > For every 1987 NL start, the score when the starting pitcher threw his last pitch, versus the final result. This is the cleanest measure of what the bullpen cost Ryan.
 

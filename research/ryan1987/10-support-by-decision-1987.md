@@ -1,6 +1,6 @@
 # Run support by decision — separating the bullpen from the offense
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > The decisive split. All four of Ryan's blown leads became no-decisions rather than losses, so the bullpen cannot account for any of his 16 defeats; it only denied him wins. The loss column belongs to the offense.
 

@@ -1,6 +1,6 @@
 # Opposing-starter handedness and what the platoon shift was worth
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Ryan's Astrodome turns fell against left-handers 47% of the time against 28% for the rest of the rotation, while on the road the mix is identical — which is why Houston's left-handed platoon bats sat behind him at home. The second table prices it: with only a 0.35-run home gap between facing LHP and RHP, a 19-point shift in mix buys about 0.07 runs a game, roughly 4% of the 1.65-run shortfall.
 

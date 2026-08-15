@@ -1,6 +1,6 @@
 # Run support behind Ryan, split by venue
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > The Astrodome was a severe pitcher's park, so raw run support must not be compared to the NL average. The controlled comparison is Houston's own scoring in Ryan's starts versus its other games at the same venue. Note the split leaves only 17 games per cell.
 

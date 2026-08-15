@@ -1,6 +1,6 @@
 # 1987 NL run environment by host park
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Combined runs per game by home park, establishing the Astrodome's severity.
 

@@ -1,6 +1,6 @@
 # 1987 relief pitching: NL baseline vs Houston vs Houston behind Ryan
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Uses runs allowed while pitching (RA/9), not ERA. Reliever ERA is misleading here because inherited runners who score are charged to the departed starter, which flatters relievers and penalises starters.
 

@@ -6,7 +6,15 @@
 //
 //   npm run research:ryan1987
 //
-// Honours DATABASE_URL / PG_SCHEMA the same way the service does.
+// Defaults to the Plex box, which is production for this project. Reaching it
+// requires Tailscale to be up on whatever machine you run this from. Override
+// with DATABASE_URL to point somewhere else:
+//
+//   DATABASE_URL=postgres://retrosheet:retrosheet@localhost:5432/retrosheet \
+//     npm run research:ryan1987
+//
+// PG_SCHEMA is honoured as usual. The database actually used is recorded in
+// each generated file, so a table can always be traced to its source.
 import { writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +23,19 @@ import { loadConfig } from "../../src/config.js";
 import { analyses } from "./queries.js";
 
 const outDir = dirname(fileURLToPath(import.meta.url));
+
+/** Production. Deliberately not the service's localhost default — see header. */
+const PLEX_DATABASE_URL = "postgres://retrosheet:retrosheet@plex:5432/retrosheet";
+
+/** Host and database only; never let the password reach a log or a file. */
+function describeTarget(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}:${u.port || "5432"}${u.pathname}`;
+  } catch {
+    return "unknown";
+  }
+}
 
 function cell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -36,8 +57,13 @@ function markdownTable(rows: Record<string, unknown>[]): string {
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
-  const pool = makePool(cfg.databaseUrl, cfg.schema);
+  // loadConfig() falls back to localhost, so read the env var directly to tell
+  // "user asked for somewhere else" apart from "nobody said anything".
+  const databaseUrl = process.env.DATABASE_URL ?? PLEX_DATABASE_URL;
+  const target = describeTarget(databaseUrl);
+  const pool = makePool(databaseUrl, cfg.schema);
   const generated = new Date().toISOString().slice(0, 10);
+  console.log(`querying ${target}${process.env.DATABASE_URL ? "" : " (default)"}`);
   try {
     for (const a of analyses) {
       const res = await pool.query(a.sql);
@@ -45,7 +71,7 @@ async function main(): Promise<void> {
       const body = [
         `# ${a.title}`,
         "",
-        `_Generated ${generated} by \`npm run research:ryan1987\`. Do not edit by hand._`,
+        `_Generated ${generated} from \`${target}\` by \`npm run research:ryan1987\`. Do not edit by hand._`,
         "",
         ...(a.note ? [`> ${a.note}`, ""] : []),
         markdownTable(rows),

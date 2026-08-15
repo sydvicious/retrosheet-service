@@ -1,6 +1,6 @@
 # Mechanism checks for the Astrodome run-support gap
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Three candidate explanations for why Houston scored less behind Ryan at home. A personal catcher would change the lineup's bat; a tougher opposing starter would suppress scoring; resting regulars on his start days would do both. Only the lineup check shows any gap, and roughly 0.46 fewer regulars is worth on the order of 0.05 runs a game — far short of the 1.65 it would need to explain.
 

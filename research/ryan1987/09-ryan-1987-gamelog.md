@@ -1,6 +1,6 @@
 # Ryan 1987 start-by-start log with bullpen aftermath
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > pen_ip includes extra innings, so it can exceed the innings Ryan left behind.
 

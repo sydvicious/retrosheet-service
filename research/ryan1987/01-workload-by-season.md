@@ -1,6 +1,6 @@
 # Ryan workload by season (starts only)
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Batters faced per start is the workload proxy. Pitch counts are not usable: Retrosheet pitch sequences only begin in 1988, and a pitch estimator calibrated on 1988-93 cannot be back-applied across the enormous 1972-76 Angels workloads or the changeup Ryan added in 1981, both of which move pitches-per-PA.
 

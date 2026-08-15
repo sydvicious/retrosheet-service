@@ -1,6 +1,6 @@
 # Where the Astrodome shortfall actually lives, by opposing hand
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > The test that refutes the platoon explanation. If sitting left-handed bats against left-handers caused the home shortfall, the gap would sit in the LHP row. It does not: against left-handers Houston was only 0.78 runs light (t = -0.71, not significant), while against right-handers — with the regular lineup intact and no platooning in play — they were 2.30 runs light (t = -2.54). The shortfall is concentrated exactly where the lineup was strongest.
 

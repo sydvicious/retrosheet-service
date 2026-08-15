@@ -1,6 +1,6 @@
 # Which regulars sat out Ryan's Astrodome starts
 
-_Generated 2026-08-15 by `npm run research:ryan1987`. Do not edit by hand._
+_Generated 2026-08-15 from `plex:5432/retrosheet` by `npm run research:ryan1987`. Do not edit by hand._
 
 > Start rate for each of Houston's eight regulars in Ryan's 17 home games versus the other 64. The four biggest gaps are Reynolds, Hatcher, Walling and Cruz; three of those four bat left-handed, which points at platooning rather than rest — see analysis 16.
 
