@@ -178,12 +178,14 @@ during the reload). No restart:
 
 ### B. New version of this service (code changed) — rebuild + reload
 
-`scripts/update-service.sh` pulls new code, refreshes the Retrosheet data,
-rebuilds the image, does one full recreate load, and recreates the services so
-PostGraphile re-introspects the schema — code **and** data in a single load (set
-`SKIP_DATA=1` to skip the data refresh):
+First check out the code you want (this script does **not** touch the service
+repo's git). Then `scripts/update-service.sh` refreshes the Retrosheet data,
+rebuilds the image from the working tree, does one full recreate load, and
+recreates the services so PostGraphile re-introspects the schema — code **and**
+data in a single load (set `SKIP_DATA=1` to skip the data refresh):
 
 ```bash
+git pull   # or check out the desired revision — you manage the service repo's git
 ./scripts/update-service.sh
 ```
 
