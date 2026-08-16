@@ -4,64 +4,75 @@
 // HOF induction YEAR per player, keyed by Retrosheet player_id. Not in the
 // Retrosheet data we load (biofile carries only a binary HOF flag), so fetched
 // once from each player's Retrosheet bio page ("Selected to the Hall of Fame in
-// YYYY") and cached here. Used to sort the sightings checklist in induction order,
-// the way the Cooperstown Plaque Gallery is arranged (chronological by class).
-// Regenerate by re-fetching if the attended list gains new HOF players.
+// YYYY") and cached here. Covers everyone the study lists — HOF players seen on
+// the field AND HOF people seen as manager of record. Used to sort both tables in
+// induction order (as the Cooperstown Plaque Gallery is arranged). Regenerate by
+// re-fetching if the attended list gains new HOF players or managers.
 export const HOF_INDUCTION_YEAR = {
-  mccow101: 1986, // Willie McCovey (1986)
-  bencj101: 1989, // Johnny Bench (1989)
-  carls001: 1994, // Steve Carlton (1994)
-  schmm001: 1995, // Mike Schmidt (1995)
-  niekp001: 1997, // Phil Niekro (1997)
-  suttd001: 1998, // Don Sutton (1998)
-  ryann001: 1999, // Nolan Ryan (1999)
-  winfd001: 2001, // Dave Winfield (2001)
-  puckk001: 2001, // Kirby Puckett (2001)
-  smito001: 2002, // Ozzie Smith (2002)
-  murre001: 2003, // Eddie Murray (2003)
-  cartg001: 2003, // Gary Carter (2003)
-  ecked001: 2004, // Dennis Eckersley (2004)
-  molip001: 2004, // Paul Molitor (2004)
-  sandr001: 2005, // Ryne Sandberg (2005)
-  boggw001: 2005, // Wade Boggs (2005)
-  ripkc001: 2007, // Cal Ripken (2007)
-  gwynt001: 2007, // Tony Gwynn (2007)
-  hendr001: 2009, // Rickey Henderson (2009)
-  dawsa001: 2010, // Andre Dawson (2010)
-  alomr001: 2011, // Roberto Alomar (2011)
-  larkb001: 2012, // Barry Larkin (2012)
-  thomf001: 2014, // Frank Thomas (2014)
-  maddg002: 2014, // Greg Maddux (2014)
-  biggc001: 2015, // Craig Biggio (2015)
-  smolj001: 2015, // John Smoltz (2015)
-  martp001: 2015, // Pedro Martinez (2015)
-  grifk002: 2016, // Ken Griffey (2016)
-  piazm001: 2016, // Mike Piazza (2016)
-  rodri001: 2017, // Ivan Rodriguez (2017)
-  bagwj001: 2017, // Jeff Bagwell (2017)
-  raint001: 2017, // Tim Raines (2017)
-  trama001: 2018, // Alan Trammell (2018)
-  jonec004: 2018, // Chipper Jones (2018)
-  thomj002: 2018, // Jim Thome (2018)
-  hofft001: 2018, // Trevor Hoffman (2018)
-  guerv001: 2018, // Vladimir Guerrero (2018)
-  marte001: 2019, // Edgar Martinez (2019)
-  bainh001: 2019, // Harold Baines (2019)
-  smitl001: 2019, // Lee Smith (2019)
-  rivem002: 2019, // Mariano Rivera (2019)
-  mussm001: 2019, // Mike Mussina (2019)
-  hallr001: 2019, // Roy Halladay (2019)
-  jeted001: 2020, // Derek Jeter (2020)
-  walkl001: 2020, // Larry Walker (2020)
-  simmt001: 2020, // Ted Simmons (2020)
-  ortid001: 2022, // David Ortiz (2022)
-  mcgrf001: 2023, // Fred McGriff (2023)
-  roles001: 2023, // Scott Rolen (2023)
-  belta001: 2024, // Adrian Beltre (2024)
-  mauej001: 2024, // Joe Mauer (2024)
-  heltt001: 2024, // Todd Helton (2024)
-  wagnb001: 2025, // Billy Wagner (2025)
-  sabac001: 2025, // CC Sabathia (2025)
-  parkd001: 2025, // Dave Parker (2025)
-  suzui001: 2025, // Ichiro Suzuki (2025)
+  berry101: 1972, // Yogi Berra
+  robif103: 1982, // Frank Robinson
+  mccow101: 1986, // Willie McCovey
+  bencj101: 1989, // Johnny Bench
+  carls001: 1994, // Steve Carlton
+  schmm001: 1995, // Mike Schmidt
+  niekp001: 1997, // Phil Niekro
+  lasot101: 1997, // Tom Lasorda
+  suttd001: 1998, // Don Sutton
+  ryann001: 1999, // Nolan Ryan
+  andes101: 2000, // Sparky Anderson
+  peret001: 2000, // Tony Perez
+  winfd001: 2001, // Dave Winfield
+  puckk001: 2001, // Kirby Puckett
+  smito001: 2002, // Ozzie Smith
+  murre001: 2003, // Eddie Murray
+  cartg001: 2003, // Gary Carter
+  ecked001: 2004, // Dennis Eckersley
+  molip001: 2004, // Paul Molitor
+  sandr001: 2005, // Ryne Sandberg
+  boggw001: 2005, // Wade Boggs
+  ripkc001: 2007, // Cal Ripken
+  gwynt001: 2007, // Tony Gwynn
+  hendr001: 2009, // Rickey Henderson
+  dawsa001: 2010, // Andre Dawson
+  herzw101: 2010, // Whitey Herzog
+  alomr001: 2011, // Roberto Alomar
+  larkb001: 2012, // Barry Larkin
+  "cox-b103": 2014, // Bobby Cox
+  thomf001: 2014, // Frank Thomas
+  maddg002: 2014, // Greg Maddux
+  torrj101: 2014, // Joe Torre
+  larut101: 2014, // Tony La Russa
+  biggc001: 2015, // Craig Biggio
+  smolj001: 2015, // John Smoltz
+  martp001: 2015, // Pedro Martinez
+  grifk002: 2016, // Ken Griffey
+  piazm001: 2016, // Mike Piazza
+  rodri001: 2017, // Ivan Rodriguez
+  bagwj001: 2017, // Jeff Bagwell
+  raint001: 2017, // Tim Raines
+  trama001: 2018, // Alan Trammell
+  jonec004: 2018, // Chipper Jones
+  thomj002: 2018, // Jim Thome
+  hofft001: 2018, // Trevor Hoffman
+  guerv001: 2018, // Vladimir Guerrero
+  marte001: 2019, // Edgar Martinez
+  bainh001: 2019, // Harold Baines
+  smitl001: 2019, // Lee Smith
+  rivem002: 2019, // Mariano Rivera
+  mussm001: 2019, // Mike Mussina
+  hallr001: 2019, // Roy Halladay
+  jeted001: 2020, // Derek Jeter
+  walkl001: 2020, // Larry Walker
+  simmt001: 2020, // Ted Simmons
+  ortid001: 2022, // David Ortiz
+  mcgrf001: 2023, // Fred McGriff
+  roles001: 2023, // Scott Rolen
+  belta001: 2024, // Adrian Beltre
+  leylj801: 2024, // Jim Leyland
+  mauej001: 2024, // Joe Mauer
+  heltt001: 2024, // Todd Helton
+  wagnb001: 2025, // Billy Wagner
+  sabac001: 2025, // CC Sabathia
+  parkd001: 2025, // Dave Parker
+  suzui001: 2025, // Ichiro Suzuki
 };

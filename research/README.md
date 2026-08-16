@@ -11,6 +11,7 @@ findings document.
 | --- | --- |
 | [ryan1987](ryan1987/) | Was Nolan Ryan's 1987 workload an early preview of "third time through the order" usage, and what turned a league-leading ERA into 8–16? |
 | [hof-sightings](hof-sightings/) | Which Hall of Famers have I seen — as players or managers — and when did I first see each one? |
+| [blown-11-run-leads](blown-11-run-leads/) | Which games did somebody blow an 11-run lead, and how many of them was I at? |
 
 > This file is intended to become the root README when research moves to its own
 > repository. See "Future — split research projects into their own repo" in the
@@ -113,6 +114,31 @@ Bob Feller All-Stars). An inner join on league discards them silently.
 **Better approach for league membership:** derive it per team-season from
 `schedule.home_league` / `visitor_league` rather than from `teams.league`, which
 conflates "which league" with "league history".
+
+### `play.runs_on_play` does not reproduce the final score
+
+Summed per game it disagrees with `game_log`'s official final in **13% of games
+(26,875 of 201,870)** — in *both* directions, so the errors don't wash out. Two
+parser bugs: a **phantom run** credited on force outs that carry no advance
+section (`64(1)/FO`, `5(2)/FO` — 19,646 plays / 18,582 games), and a **dropped
+run** on multi-run plays where the second is marked `(UR)`
+(`S9/L9M.3-H;2-H(UR);1-3` scores two, the mart records one — 6,092 plays / 5,404
+games).
+
+Season and career totals absorb this; anything that needs the score **at a
+moment** does not. Re-deriving runs from the raw event string gets agreement to
+98.8% — see `RUNS` in [blown-11-run-leads/queries.ts](blown-11-run-leads/queries.ts). In that
+study the stored column produced two false positives and, worse, one false
+negative. `away_score_before` / `home_score_before` inherit the same error.
+
+Validate any play-level score work against `game_log` finals; the game logs are a
+separate Retrosheet download, so the check is independent of the parser.
+
+### `teams` holds one nickname per franchise, the current one
+
+`team_id` is the primary key, so `CLE` is "Guardians" in 1925 as well as 2025 —
+historical nicknames aren't in the mart. Fine for identity, wrong for prose;
+label it or use the team id when the output is meant to read as history.
 
 ### `runs` and `earned_runs` sit on different bases
 

@@ -56,22 +56,28 @@ data (the `biofile` HOF column is a bare yes/no); it's on their website but not 
 repo, so each player's year was fetched once from their Retrosheet bio page and
 cached in `hof-induction.ts`.
 
-## Managers (deliberately excluded)
+## Managers (separate table)
 
-The checklist is **players only**. Managers are a different kind of sighting —
-seeing a Hall of Famer *manage* isn't the same as the plaque you check off — so
-they're left off. That decision also sidesteps a data trap worth recording:
-Retrosheet's `hof` flag is binary (in / not in), with **no induction category**,
-and the category can't be inferred — **130 HOF people carry a `mgr_debut`**
-(player-managers, plus modern coaches with a one-game acting-manager stint — even
-Robin Yount has one), while only ~22 were enshrined *as* managers. So "HOF
-managers I saw" can't be answered by the flag alone; it needs the curated
-manager-inductee list in `hof-managers.ts`.
+The main checklist is **players only** — seeing a Hall of Famer *manage* isn't the
+same plaque you check off at a player's induction. But every HOF person seen as
+manager of record gets its own table at the bottom of the document, **any**
+induction category, unfiltered.
 
-Both pieces are **retained for future queries**: the manager-of-record data lives
-in the mart's `game_log` table, and `hof-managers.ts` holds the curated list. For
-the record, the seven HOF *managers* seen (by that method) were Sparky Anderson,
-Bobby Cox, Whitey Herzog, Tony La Russa, Tommy Lasorda, Jim Leyland, and Joe Torre
-— and the game logs correct a tempting-but-wrong postseason answer: La Russa's
-first sighting is a **1989 A's regular-season game at the Coliseum**, not the 1992
-ALCS.
+Unfiltered by necessity: **induction category is not in this data and can't be
+derived from it.** Retrosheet's `hof` flag is binary (in / not in); and debut dates
+don't help, since **130 HOF people carry a `mgr_debut`** (player-managers, plus
+modern coaches with a one-game acting-manager stint — even Robin Yount has one)
+while only ~22 were enshrined *as* managers. So which of the 12 were inducted as
+managers vs. as players is an **external fact, determined by hand** from the Hall's
+records — feasible only because so few Hall of Famers ever managed. That hand
+determination is what `hof-managers.ts` records; the table just lists all 12 with
+their induction year (itself fetched from Retrosheet's site, not the dataset) so
+the split can be checked plaque by plaque.
+
+Doing that by hand: of the 12, seven are HOF *managers* (Lasorda, Anderson,
+Herzog, Cox, Torre, La Russa, Leyland) and five are HOF *players* who later managed
+(Berra, Frank Robinson, Perez, Molitor, Trammell) — so the "I bet none were
+inducted as players" hunch doesn't hold, but the point stands that only a person,
+not the query, can say so. Separately, the game logs correct a tempting-but-wrong
+postseason answer: La Russa's first sighting is a **1989 A's regular-season game at
+the Coliseum**, not the 1992 ALCS.
