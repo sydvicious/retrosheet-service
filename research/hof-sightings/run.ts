@@ -12,7 +12,7 @@
 // `game_log` table for future queries, and hof-managers.ts retains the curated list
 // of manager-inducted HOFers should a "HOF managers I saw" study ever be built.
 //
-// Run (research default is Plex; override with DATABASE_URL):
+// Run (research default is warehouse; override with DATABASE_URL):
 //   tsx research/hof-sightings/run.ts
 //   DATABASE_URL=postgres://retrosheet:retrosheet@localhost:5432/retrosheet tsx research/hof-sightings/run.ts
 //
@@ -25,7 +25,7 @@ import { Pool } from "pg";
 import { HOF_INDUCTION_YEAR } from "./hof-induction.js";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const DB = process.env.DATABASE_URL ?? "postgres://retrosheet:retrosheet@plex:5432/retrosheet";
+const DB = process.env.DATABASE_URL ?? "postgres://retrosheet:retrosheet@warehouse:5432/retrosheet";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmt = (iso) => { const [y, m, d] = iso.split("-"); return `${MONTHS[+m - 1]} ${+d}, ${y}`; };
 

@@ -182,15 +182,15 @@ it visible in the query.
 
 ### Which database
 
-Research runs against **Plex**, which is production:
+Research runs against **warehouse**, which is production:
 
 ```
-postgres://retrosheet:retrosheet@plex:5432/retrosheet
+postgres://retrosheet:retrosheet@warehouse:5432/retrosheet
 ```
 
 Requires Tailscale on the machine running the query. Runners honour a
 `DATABASE_URL` override. The service and ETL keep their localhost default —
-develop the service locally, do research against Plex. Every generated file
+develop the service locally, do research against warehouse. Every generated file
 records which database produced it.
 
 ### Generated vs hand-written

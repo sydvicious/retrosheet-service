@@ -7,8 +7,8 @@ backed by PostgreSQL. Two pieces:
    that recreates/updates it from new releases).
 2. A PostGraphile GraphQL endpoint to query it.
 
-Runs on macOS and Linux via Docker Compose (dev on Mac → Plex server → a Linux
-PC later). Node 22 + TypeScript throughout.
+Runs on macOS and Linux via Docker Compose (dev on Mac; production is the Linux
+box `warehouse`). Node 22 + TypeScript throughout.
 
 ## Hard constraints (do not violate)
 * **No Chadwick dependency at runtime.** Deployed installations have no Chadwick

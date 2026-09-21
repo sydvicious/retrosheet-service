@@ -17,11 +17,11 @@ Rewrites every numbered `.md` file in this directory. Those files are generated 
 edit [`queries.ts`](queries.ts) instead. [`FINDINGS.md`](FINDINGS.md) is the
 hand-written interpretation and is not regenerated.
 
-**This defaults to Plex, not localhost.** Plex is production for this project,
+**This defaults to warehouse, not localhost.** Warehouse is production for this project,
 and research should run against it so results do not depend on whether Docker
 happens to be up on a laptop. The service and the ETL still default to localhost
 — that split is deliberate: **develop the service locally, do research against
-Plex.** Reaching Plex requires Tailscale to be running on whatever machine you
+warehouse.** Reaching warehouse requires Tailscale to be running on whatever machine you
 run this from.
 
 To point somewhere else — a local checkout of the data, or a test schema:
@@ -32,8 +32,8 @@ DATABASE_URL=postgres://retrosheet:retrosheet@localhost:5432/retrosheet npm run 
 
 `PG_SCHEMA` is honoured as usual. Every generated file records the database it
 came from in its header line, so a table can always be traced to its source.
-When this study was first run, Plex and the local mart were verified identical
-(15,999,097 play rows, matching season lines).
+When this study was first run, Plex (then production) and the local mart were
+verified identical (15,999,097 play rows, matching season lines).
 
 ## Files
 

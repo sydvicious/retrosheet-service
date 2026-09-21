@@ -24,7 +24,7 @@ date and the box-score link — the `game_id` is parsed out of the `B…` box co
 
 ## Run
 
-Research default is Plex (production); override with `DATABASE_URL`:
+Research default is warehouse (production); override with `DATABASE_URL`:
 
 ```bash
 tsx research/hof-sightings/run.ts

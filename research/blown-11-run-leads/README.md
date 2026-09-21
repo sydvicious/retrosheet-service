@@ -42,7 +42,7 @@ essentially the whole runtime of the study.
 
 ## Run
 
-Research default is Plex (production); override with `DATABASE_URL`:
+Research default is warehouse (production); override with `DATABASE_URL`:
 
 ```bash
 tsx research/blown-11-run-leads/run.ts

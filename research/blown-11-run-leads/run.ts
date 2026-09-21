@@ -10,7 +10,7 @@
 //   2. Replay those games from the play table, tracking the score after every
 //      play, and keep the ones where an 11+ run lead reached zero.
 //
-// Run (research default is Plex; override with DATABASE_URL):
+// Run (research default is warehouse; override with DATABASE_URL):
 //   tsx research/blown-11-run-leads/run.ts
 //   DATABASE_URL=postgres://retrosheet:retrosheet@localhost:5432/retrosheet tsx research/blown-11-run-leads/run.ts
 //
@@ -51,7 +51,7 @@ interface BlownLead {
 }
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const DB = process.env.DATABASE_URL ?? "postgres://retrosheet:retrosheet@plex:5432/retrosheet";
+const DB = process.env.DATABASE_URL ?? "postgres://retrosheet:retrosheet@warehouse:5432/retrosheet";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmt = (iso: string) => { const [y, m, d] = iso.split("-"); return `${MONTHS[+m - 1]} ${+d}, ${y}`; };
 const pct = (n: number, d: number) => `${((100 * n) / d).toFixed(1)}%`;

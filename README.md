@@ -73,7 +73,7 @@ installed yet) you can bootstrap it remotely — no clone needed first:
 The manual steps follow for reference.
 
 `brew install docker` installs only the CLI *client*; macOS still needs a Linux
-VM to run the Docker *engine*. On a headless box (e.g. a Plex server) the clean,
+VM to run the Docker *engine*. On a headless Mac server the clean,
 GUI-free route is **[Colima](https://github.com/abiosoft/colima)**:
 
 **Homebrew packages** for a deployment host (the Docker path needs only these):
@@ -155,7 +155,7 @@ docker compose run --rm loader
 docker compose up -d api mcp
 ```
 
-Endpoints (replace `localhost` with the host name, e.g. `plex`):
+Endpoints (replace `localhost` with the host name, e.g. `warehouse`):
 
 - **GraphQL / GraphiQL** — http://localhost:5050/ (port 5050, not 5000 — on macOS
   the AirPlay Receiver in Control Center listens on 5000)
@@ -282,7 +282,7 @@ database.
 - **Ansible playbook** — the setup scripts (`scripts/setup-macos.sh`,
   `scripts/setup-linux.sh`) plus *Install from scratch* are the recipe; express
   it declaratively as an Ansible role for reproducible provisioning across hosts
-  (the Plex box, the future Linux PC): provision host → install Docker → clone →
+  (e.g. the `warehouse` Linux box): provision host → install Docker → clone →
   load → bring up `db`/`api`/`mcp`.
 - **Higher play-by-play parity** — a game-ordered harness that diffs base-runner
   destinations / pitcher / outs-before against the Chadwick oracle at scale, and

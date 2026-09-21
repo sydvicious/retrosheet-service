@@ -6,7 +6,7 @@
 //
 //   npm run research:ryan1987
 //
-// Defaults to the Plex box, which is production for this project. Reaching it
+// Defaults to the warehouse box, which is production for this project. Reaching it
 // requires Tailscale to be up on whatever machine you run this from. Override
 // with DATABASE_URL to point somewhere else:
 //
@@ -25,7 +25,7 @@ import { analyses } from "./queries.js";
 const outDir = dirname(fileURLToPath(import.meta.url));
 
 /** Production. Deliberately not the service's localhost default — see header. */
-const PLEX_DATABASE_URL = "postgres://retrosheet:retrosheet@plex:5432/retrosheet";
+const PROD_DATABASE_URL = "postgres://retrosheet:retrosheet@warehouse:5432/retrosheet";
 
 /** Host and database only; never let the password reach a log or a file. */
 function describeTarget(url: string): string {
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   // loadConfig() falls back to localhost, so read the env var directly to tell
   // "user asked for somewhere else" apart from "nobody said anything".
-  const databaseUrl = process.env.DATABASE_URL ?? PLEX_DATABASE_URL;
+  const databaseUrl = process.env.DATABASE_URL ?? PROD_DATABASE_URL;
   const target = describeTarget(databaseUrl);
   const pool = makePool(databaseUrl, cfg.schema);
   const generated = new Date().toISOString().slice(0, 10);
