@@ -132,6 +132,9 @@ export interface LoadProgress {
   // When set, the heartbeat prints this instead of the (frozen) play count —
   // used by phases that aren't loading plays (e.g. the daily aggregation).
   detail?: string;
+  // Seasons with event files: finished so far / to load. Set while loading events.
+  seasonsDone?: number;
+  seasonsTotal?: number;
 }
 
 export async function loadEvents(
@@ -145,7 +148,12 @@ export async function loadEvents(
     comment: 0, earned_runs: 0, game_adjustment: 0, play: 0, fielding_daily: 0,
   };
 
-  const years = seasonYears(root).filter((y) => !seasons || seasons.has(y));
+  const years = seasonYears(root)
+    .filter((y) => (!seasons || seasons.has(y)) && eventFiles(root, y).length);
+  if (progress) {
+    progress.seasonsDone = 0;
+    progress.seasonsTotal = years.length;
+  }
 
   for (const year of years) {
     for (const file of eventFiles(root, year)) {
@@ -220,6 +228,7 @@ export async function loadEvents(
         progress.label = `events ${year}`;
       }
     }
+    if (progress) progress.seasonsDone = (progress.seasonsDone ?? 0) + 1;
   }
 
   return counts;

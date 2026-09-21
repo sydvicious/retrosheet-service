@@ -283,6 +283,12 @@ database.
   remaining long tail (currently ~0.04% of plays have an impossible out-count from
   rare encodings / genuine 4-out appeal plays).
 - **Phase 5** — the web front-end.
+- **Reload only the seasons that changed** — investigate. Any data change now
+  reloads every season (~20 min). `git diff --name-only` between the recorded
+  `schema_meta.data_version` commit and the new one maps changed
+  `seasons/<year>/` paths to seasons; per-game tables could be replaced a season
+  at a time, while the small reference tables just reload. Open questions: the
+  `--depth 1` clone may lack the old commit, and game logs aren't in the clone.
 
 ## Retrosheet terms of use
 

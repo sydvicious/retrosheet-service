@@ -41,9 +41,22 @@ import {
   loadPeople, loadTeams, loadBallparks, loadCoaches, loadEjections, loadRelatives,
 } from "./reference.js";
 import { loadRosters, loadSchedules } from "./seasons.js";
-import { loadEvents } from "./events.js";
+import { loadEvents, type LoadProgress } from "./events.js";
+import { eventFiles, seasonYears } from "./paths.js";
 import { loadDaily } from "./daily.js";
 import { loadGameLogs } from "./gamelog.js";
+
+/** "123 seasons - 1900; 1903; 1905-2025": the seasons that have event files. */
+function describeSeasons(root: string): string {
+  const years = seasonYears(root).filter((y) => eventFiles(root, y).length).map(Number);
+  const ranges: string[] = [];
+  for (let i = 0; i < years.length; i++) {
+    const start = years[i]!;
+    while (i + 1 < years.length && years[i + 1] === years[i]! + 1) i++;
+    ranges.push(years[i] === start ? `${start}` : `${start}-${years[i]}`);
+  }
+  return `${years.length} seasons - ${ranges.join("; ")}`;
+}
 
 /** --check exit code: the database must be (re)loaded by this code. */
 const EXIT_NEEDS_LOAD = 10;
@@ -74,7 +87,7 @@ async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolea
     if (!hasCore) return false; // fresh, empty DB — nothing to recreate
     console.warn(
       "Schema is present but unversioned (built before schema versioning) — " +
-        "forcing a full recreate.",
+        "forcing full database rebuild",
     );
     return true;
   }
@@ -85,7 +98,7 @@ async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolea
   if (dbVersion !== SCHEMA_VERSION) {
     console.warn(
       `Schema version mismatch: database is v${dbVersion}, code is v${SCHEMA_VERSION} — ` +
-        "forcing a full recreate so the new table definitions take effect.",
+        "forcing full database rebuild",
     );
     return true;
   }
@@ -154,10 +167,10 @@ async function main(): Promise<void> {
     const recreate = explicitRecreate || await schemaVersionMismatch(pool, cfg.schema);
 
     if (recreate) {
-      console.log("Recreating schema (drop + create) …");
+      console.log("Recreating schema …");
       await pool.query(`DROP SCHEMA IF EXISTS ${cfg.schema} CASCADE`);
     }
-    console.log("Ensuring schema (creates any missing tables/indexes; drops nothing) …");
+    console.log("Ensuring schema …");
     await applySchemaFile(pool, schemaSqlPath);
     // Stamp the current structural version so a later load can detect a mismatch.
     await pool.query(
@@ -165,17 +178,20 @@ async function main(): Promise<void> {
          ON CONFLICT (singleton) DO UPDATE SET version = EXCLUDED.version, applied_at = now()`,
       [SCHEMA_VERSION],
     );
-    console.log(`Schema ready (version ${SCHEMA_VERSION}). Reloading data in one transaction …`);
+    console.log(`Schema ready (version ${SCHEMA_VERSION}). Reloading data …`);
 
     const counts: Record<string, number> = {};
     // Heartbeat clock: a line every 5s with elapsed time + live play count, so a
     // stall is obvious in seconds rather than after the whole load.
-    const progress = { plays: 0, label: "preparing", detail: "" };
+    const progress: LoadProgress = { plays: 0, label: "preparing", detail: "" };
     const ticker = setInterval(() => {
       const s = ((Date.now() - started) / 1000).toFixed(0);
       // Phases loading plays show the running count; other phases (daily
       // aggregation, commit) set `detail` so the line reflects real work.
-      const status = progress.detail || `${progress.plays.toLocaleString()} plays loaded`;
+      const seasonInfo = progress.seasonsTotal
+        ? ` (${progress.seasonsDone}/${progress.seasonsTotal} seasons finished)`
+        : "";
+      const status = progress.detail || `${progress.plays.toLocaleString()} plays loaded${seasonInfo}`;
       console.log(`  … [${s}s] ${progress.label}: ${status}`);
     }, 5000);
     ticker.unref();
@@ -204,7 +220,7 @@ async function main(): Promise<void> {
       console.log(
         seasons
           ? `Loading events + play-by-play for seasons: ${[...seasons].sort().join(", ")} …`
-          : "Loading events + play-by-play (the long part; ~150 seasons) …",
+          : `Loading events + play-by-play (${describeSeasons(root)}) …`,
       );
       const eventCounts = await loadEvents(client, root, seasons, progress);
       Object.assign(counts, eventCounts);

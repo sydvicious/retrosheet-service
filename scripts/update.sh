@@ -45,8 +45,8 @@ if commit="$(git -C "$RETROSHEET_DIR" rev-parse HEAD 2>/dev/null)"; then
 fi
 echo "    Retrosheet data version: ${RETROSHEET_VERSION:-(not a git clone)}"
 
-echo "==> Rebuilding all images incl. the loader (the loader is behind the 'etl'"
-echo "    profile, which a plain 'docker compose build' would skip) …"
+echo "==> Rebuilding images …"
+# --profile etl so the loader image is rebuilt too.
 docker compose --profile etl build --no-cache --pull
 
 echo "==> Ensuring Postgres is up …"
@@ -65,9 +65,9 @@ case "$rc" in
     echo "Updated. Database unchanged."
     ;;
   10)
-    echo "==> Reloading the database (several minutes) …"
+    echo "==> Reloading the database …"
     docker compose run --rm -e RETROSHEET_VERSION="$RETROSHEET_VERSION" loader
-    echo "==> Recreating the services so the API re-introspects the schema …"
+    echo "==> Recreating the services …"
     docker compose up -d --force-recreate api mcp
     echo "Updated and reloaded."
     ;;
