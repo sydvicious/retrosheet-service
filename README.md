@@ -56,8 +56,10 @@ Built in phases:
 ## Prerequisites
 
 The Docker path runs everything in containers, so a deployment host needs only
-**Docker (engine running)** and **git** — no Node, Postgres, or Chadwick on the
-host.
+**Docker (engine running)**, **git**, and **curl** + **unzip** (to fetch the
+Retrosheet game logs) — no Node, Postgres, or Chadwick on the host. macOS ships
+curl and unzip; minimal Linux installs may lack them, and
+`scripts/setup-linux.sh` installs both.
 
 ### Docker engine on macOS — Colima (no Docker Desktop required)
 
@@ -117,8 +119,8 @@ Colima only serves Docker while its VM is up (`colima status` / `colima stop`);
 (`brew install --cask docker`) is a fine alternative — it bundles the engine and
 Compose — but it's a GUI app you must keep running.
 
-On **Linux**, run `./scripts/setup-linux.sh` (installs git, tmux, Docker Engine,
-and the Compose/Buildx plugins; no VM involved), or bootstrap a bare host remotely:
+On **Linux**, run `./scripts/setup-linux.sh` (installs git, curl, tmux, unzip,
+Docker Engine, and the Compose/Buildx plugins; no VM involved), or bootstrap a bare host remotely:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/sydvicious/retrosheet-service/main/scripts/setup-linux.sh)"
@@ -129,8 +131,8 @@ manager / `get.docker.com`.
 
 ## Install from scratch (Docker — Mac or Linux)
 
-Prerequisites: **Docker** (engine running) and **git** — see *Prerequisites*
-above. Nothing else is needed on the host; Node, Postgres, and the parser all run
+Prerequisites: **Docker** (engine running), **git**, **curl**, and **unzip** —
+see *Prerequisites* above. Nothing else is needed on the host; Node, Postgres, and the parser all run
 in containers.
 
 ```bash
@@ -163,52 +165,43 @@ Endpoints (replace `localhost` with the host name, e.g. `warehouse`):
 
 ## Update an existing installation
 
-Two cases, depending on whether only the **data** changed or the **code** changed.
-
-### A. New Retrosheet data only (no code change) — hot, no restart
-
-`scripts/update-data.sh` pulls the latest Retrosheet data and reloads it in a
-single transaction. The running services keep serving throughout — readers see
-the old data until the reload commits, then the new data (queries briefly block
-during the reload). No restart:
-
-```bash
-./scripts/update-data.sh
-```
-
-### B. New version of this service (code changed) — rebuild + reload
-
-First check out the code you want (this script does **not** touch the service
-repo's git). Then `scripts/update-service.sh` refreshes the Retrosheet data,
-rebuilds the image from the working tree, does one full recreate load, and
-recreates the services so PostGraphile re-introspects the schema — code **and**
-data in a single load (set `SKIP_DATA=1` to skip the data refresh):
+First check out the code you want. `update.sh` does **not** touch the service
+repo's git; it builds from the working tree as-is. Then:
 
 ```bash
 git pull   # or check out the desired revision — you manage the service repo's git
-./scripts/update-service.sh
+./scripts/update.sh
 ```
 
-The load prints an elapsed-time heartbeat every few seconds (`… [123s] events
+It refreshes the Retrosheet data, rebuilds the images, and brings up `db`,
+`api`, and `mcp` on them. It **reloads the database only when it has to**: when
+the code's schema version differs from the database's, or when the Retrosheet
+data differs from what was loaded. The data's version is the clone's commit plus
+a hash of the game logs `fetch-data.sh` downloads separately; each full load
+records it in `schema_meta.data_version`.
+
+- **Data changed, schema didn't:** the reload runs in one transaction. The
+  services keep serving the old data until it commits, then the new data.
+- **Schema changed:** the loader drops and rebuilds the schema first, so **the
+  API and MCP are unavailable during the load**. The script recreates them
+  afterwards so they see the new tables.
+- **Neither changed:** no load; the services are just brought up on the new
+  images.
+
+A compose-only change (e.g. Postgres settings) needs no script:
+`docker compose up -d db api mcp`.
+
+A load prints an elapsed-time heartbeat every few seconds (`… [123s] events
 1994: 3.9M plays loaded`), so you can tell it's alive and spot a stall
 immediately. **On a remote host, run it inside `tmux`/`screen`** so a dropped SSH
 session can't abort the multi-minute load:
 
 ```bash
-tmux new -s retro './scripts/update-service.sh'   # reattach later: tmux attach -t retro
+tmux new -s retro './scripts/update.sh'   # reattach later: tmux attach -t retro
 ```
 
-Equivalent manual steps:
-
-```bash
-git pull
-docker compose --profile etl build   # --profile etl so the loader image is rebuilt too
-RECREATE=1 docker compose run --rm loader
-docker compose up -d --force-recreate api mcp
-```
-
-The recreate load reparses all play-by-play and takes several minutes (per-season
-heartbeat shown). For a quick test load, limit seasons:
+For a quick test load, limit seasons. A partial load records no data version, so
+the next `update.sh` does a full reload:
 
 ```bash
 SEASONS=2023,2024 docker compose run --rm loader

@@ -11,6 +11,6 @@
 // The loader stamps this number into the `schema_meta` table after applying the
 // schema. On a later load, if the number stamped in the database differs from the
 // number here, the loader forces a full DROP + recreate before loading — so the
-// fast hot-refresh path (update-data.sh, no --recreate) can't silently load data
+// fast hot-refresh path (no --recreate) can't silently load data
 // into stale table definitions after a structural change.
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2; // v2: schema_meta.data_version / loaded_at

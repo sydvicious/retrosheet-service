@@ -2,8 +2,8 @@
 # Copyright (c) 2026 Syd Polk
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Ready a Linux host to run retrosheet-service via Docker. Installs git, tmux,
-# and the Docker Engine + Compose/Buildx plugins (via Docker's official
+# Ready a Linux host to run retrosheet-service via Docker. Installs git, curl,
+# tmux, unzip, and the Docker Engine + Compose/Buildx plugins (via Docker's official
 # get.docker.com script), enables the service, and adds the current user to the
 # docker group.
 # Idempotent — safe to re-run. Requires root or sudo.
@@ -25,8 +25,10 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
-# --- git + tmux (via the distro package manager) ------------------------------
-# tmux lets a multi-minute load survive a dropped SSH session.
+# --- git, curl, tmux, unzip (via the distro package manager) ------------------
+# curl fetches Docker's installer below and the Retrosheet game logs in
+# fetch-data.sh, which unzip unpacks; tmux lets a multi-minute load survive a
+# dropped SSH session.
 install_pkg() {
   if command -v apt-get >/dev/null 2>&1; then
     $SUDO apt-get update && $SUDO apt-get install -y "$1"
@@ -44,7 +46,7 @@ install_pkg() {
   fi
 }
 
-for pkg in git tmux; do
+for pkg in git curl tmux unzip; do
   if ! command -v "$pkg" >/dev/null 2>&1; then
     echo "==> Installing $pkg …"
     install_pkg "$pkg"

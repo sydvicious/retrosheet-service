@@ -32,7 +32,7 @@ echo "Retrosheet data ready in $DATA_DIR"
 # a separate Retrosheet download, not in the repo; fetch one per season year we
 # have, into gamelog/ (alongside the postseason GL*.TXT). Incremental — existing
 # years are skipped, so only new years are downloaded on later runs.
-if [ -d "$DATA_DIR/seasons" ] && command -v curl >/dev/null 2>&1; then
+if [ -d "$DATA_DIR/seasons" ]; then
   GLDIR="$DATA_DIR/gamelog"
   mkdir -p "$GLDIR"
   # First pass: which season years still need a game-log file? Count them so the
@@ -48,14 +48,26 @@ if [ -d "$DATA_DIR/seasons" ] && command -v curl >/dev/null 2>&1; then
     total=$((total + 1))
   done
   if [ "$total" -gt 0 ]; then
+    # Fail loudly: without these the game logs (and managers of record) would
+    # silently go missing from the load.
+    for tool in curl unzip; do
+      if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "$tool is required to fetch the Retrosheet game logs — install it and re-run." >&2
+        exit 1
+      fi
+    done
     echo "Fetching $total game-log year(s) from retrosheet.org into $GLDIR …"
     fetched=0
     i=0
     for y in $missing; do
       i=$((i + 1))
       if curl -fsSL "https://www.retrosheet.org/gamelogs/gl${y}.zip" -o "$GLDIR/gl${y}.zip" 2>/dev/null; then
-        command -v unzip >/dev/null 2>&1 && unzip -oq "$GLDIR/gl${y}.zip" -d "$GLDIR"
+        unzip -oq "$GLDIR/gl${y}.zip" -d "$GLDIR"
         rm -f "$GLDIR/gl${y}.zip"
+        if [ ! -f "$GLDIR/gl${y}.txt" ]; then
+          echo "gl${y}.zip did not contain gl${y}.txt — check $GLDIR." >&2
+          exit 1
+        fi
         fetched=$((fetched + 1))
         echo "  … [$i/$total] gl${y}"
       else

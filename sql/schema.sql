@@ -17,10 +17,18 @@ SET search_path TO retrosheet;
 -- after applying this file; on a later load a mismatch forces a full recreate, so
 -- a hot data refresh can't load into stale table definitions. Not a data table —
 -- never TRUNCATEd during a refresh.
+--
+-- data_version identifies the Retrosheet data the tables were loaded from: the
+-- clone's commit hash plus a hash of the separately downloaded game logs (see
+-- scripts/update.sh). Set inside the load transaction (so a failed load never
+-- records it); NULL after a partial SEASONS= load. update.sh reloads when it
+-- differs.
 CREATE TABLE IF NOT EXISTS schema_meta (
-  singleton  boolean PRIMARY KEY DEFAULT true,
-  version    integer NOT NULL,
-  applied_at timestamptz NOT NULL DEFAULT now(),
+  singleton   boolean PRIMARY KEY DEFAULT true,
+  version     integer NOT NULL,
+  applied_at  timestamptz NOT NULL DEFAULT now(),
+  data_version text,
+  loaded_at   timestamptz,
   CONSTRAINT schema_meta_singleton CHECK (singleton)
 );
 

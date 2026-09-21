@@ -12,17 +12,25 @@
 //   --recreate         Drop and recreate the schema first (use when the table
 //                      DEFINITIONS in sql/schema.sql changed; the API must be
 //                      restarted afterward to expose structural changes).
+//   --check            Load nothing. Exit 0 if the database is fully loaded at
+//                      this code's SCHEMA_VERSION from RETROSHEET_VERSION, or
+//                      EXIT_NEEDS_LOAD if anything differs (empty, unversioned,
+//                      another schema version, other data). scripts/update.sh
+//                      uses this to reload only when needed.
 //
 // A recreate is ALSO forced automatically — even in the default hot-refresh mode —
 // when the schema version stamped in the database differs from this code's
 // SCHEMA_VERSION (src/etl/schemaVersion.ts). That makes a plain data refresh safe
 // after a structural schema change: it won't silently load into stale tables. When
-// that happens the API/mcp still need a restart to re-introspect (update-service.sh
-// does this; update-data.sh does not — prefer update-service.sh for code changes).
+// that happens the API/mcp still need a restart to re-introspect (scripts/update.sh
+// does this).
 //
 // Env:
 //   SEASONS=2023,2024  Limit event loading to these seasons (default: all).
 //   RECREATE=1         Same as --recreate.
+//   RETROSHEET_VERSION Identity of the Retrosheet data being loaded (clone
+//                      commit + game-log hash, from scripts/update.sh). Recorded
+//                      in schema_meta on a full load; compared by --check.
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import type { Pool } from "pg";
@@ -36,6 +44,9 @@ import { loadRosters, loadSchedules } from "./seasons.js";
 import { loadEvents } from "./events.js";
 import { loadDaily } from "./daily.js";
 import { loadGameLogs } from "./gamelog.js";
+
+/** --check exit code: the database must be (re)loaded by this code. */
+const EXIT_NEEDS_LOAD = 10;
 
 const schemaSqlPath = fileURLToPath(new URL("../../sql/schema.sql", import.meta.url));
 
@@ -81,8 +92,46 @@ async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolea
   return false;
 }
 
+// --check: is the database already a full load of this data by this schema?
+// Unlike schemaVersionMismatch(), an empty database counts as needing a load.
+async function isCurrent(pool: Pool, schema: string, dataVersion: string | undefined): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT to_regclass($1) IS NOT NULL AS has_meta`, [`${schema}.schema_meta`],
+  );
+  if (!rows[0]?.has_meta) {
+    console.log("Database has no versioned schema — a load is needed.");
+    return false;
+  }
+  const { version, data_version: loaded } =
+    (await pool.query(`SELECT * FROM ${schema}.schema_meta LIMIT 1`)).rows[0] ?? {};
+  if (version !== SCHEMA_VERSION) {
+    console.log(`Database is schema v${version ?? 0}, code is v${SCHEMA_VERSION} — a load is needed.`);
+    return false;
+  }
+  if (!dataVersion) {
+    console.log("RETROSHEET_VERSION is not set, so the data can't be compared — a load is needed.");
+    return false;
+  }
+  if (loaded !== dataVersion) {
+    console.log(`Database holds Retrosheet data ${loaded ?? "(unknown)"}, data dir is ${dataVersion} — a load is needed.`);
+    return false;
+  }
+  console.log(`Database is current (schema v${SCHEMA_VERSION}, Retrosheet data ${dataVersion}) — no load needed.`);
+  return true;
+}
+
 async function main(): Promise<void> {
   const cfg = loadConfig();
+  const dataVersion = process.env.RETROSHEET_VERSION?.trim() || undefined;
+  if (process.argv.includes("--check")) {
+    const pool = makePool(cfg.databaseUrl);
+    try {
+      if (!(await isCurrent(pool, cfg.schema, dataVersion))) process.exitCode = EXIT_NEEDS_LOAD;
+    } finally {
+      await pool.end();
+    }
+    return;
+  }
   const explicitRecreate = process.argv.includes("--recreate") || process.env.RECREATE === "1";
   const seasonsEnv = process.env.SEASONS?.split(",").map((s) => s.trim()).filter(Boolean);
   const seasons = seasonsEnv && seasonsEnv.length ? new Set(seasonsEnv) : undefined;
@@ -98,7 +147,7 @@ async function main(): Promise<void> {
   const pool = makePool(cfg.databaseUrl);
   try {
     // Force a full recreate when the code's SCHEMA_VERSION differs from what's
-    // stamped in the DB, even without --recreate. This keeps update-data.sh (the
+    // stamped in the DB, even without --recreate. This keeps a plain load (the
     // fast hot-refresh path) safe after a structural schema change: without it, the
     // idempotent CREATE ... IF NOT EXISTS schema would leave old table shapes in
     // place and the reload would load into them silently.
@@ -174,6 +223,13 @@ async function main(): Promise<void> {
       console.log("Aggregating daily stat lines from plays …");
       const dailyCounts = await loadDaily(client, progress);
       Object.assign(counts, dailyCounts);
+
+      // Record which data this is, in the same transaction, so a failed load
+      // never claims it. A partial (SEASONS=) load isn't the whole clone.
+      await client.query(
+        "UPDATE schema_meta SET data_version = $1, loaded_at = now()",
+        [seasons ? null : dataVersion ?? null],
+      );
 
       progress.label = "committing";
       progress.detail = "flushing the transaction …";
