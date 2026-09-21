@@ -175,12 +175,15 @@ git pull   # or check out the desired revision — you manage the service repo's
 
 It refreshes the Retrosheet data, rebuilds the images, and brings up `db`,
 `api`, and `mcp` on them. It **reloads the database only when it has to**: when
-the code's schema version differs from the database's, or when the Retrosheet
-data differs from what was loaded. The data's version is the clone's commit plus
-a hash of the game logs `fetch-data.sh` downloads separately; each full load
-records it in `schema_meta.data_version`.
+the code's schema version differs from the database's, when the code's ETL
+version (the parser/loader logic that turns Retrosheet files into rows) differs
+from the one that did the last load, or when the Retrosheet data differs from
+what was loaded. The data's version is the clone's commit plus a hash of the
+game logs `fetch-data.sh` downloads separately; each full load records it in
+`schema_meta.data_version` and the ETL version in `schema_meta.etl_version`.
+Both versions live in `src/etl/schemaVersion.ts`.
 
-- **Data changed, schema didn't:** the reload runs in one transaction. The
+- **Data or ETL changed, schema didn't:** the reload runs in one transaction. The
   services keep serving the old data until it commits, then the new data.
 - **Schema changed:** the loader drops and rebuilds the schema first, so **the
   API and MCP are unavailable during the load**. The script recreates them

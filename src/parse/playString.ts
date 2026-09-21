@@ -126,9 +126,12 @@ function parseAdvance(token: string): Advance | null {
  * Tokenize a fielder-sequence out basic (e.g. "63", "36(1)1", "5(2)", "6(B)5(3)")
  * into putouts. A "(base)" marks a runner (or batter, "(B)") retired; a bare
  * trailing fielder run is the batter retired at first. Force outs like "5(2)"
- * retire only the marked runner — the batter is safe.
+ * retire only the marked runner — the batter is safe. An error in the sequence
+ * ("4E1": the throw to first is muffed) negates that trailing putout, so the
+ * batter is safe at first even without an explicit B-1.
  */
 function fielderOuts(basic: string): { outs: number; batterOut: boolean } {
+  const hasError = /E\d/.test(basic);
   const segs: { base: string | null }[] = [];
   const re = /(\d+)(?:\(([B123])\))?/g;
   let m: RegExpExecArray | null;
@@ -146,7 +149,7 @@ function fielderOuts(basic: string): { outs: number; batterOut: boolean } {
     if (seg.base !== null) {
       outs += 1;
       if (seg.base === "B") batterOut = true;
-    } else if (i === segs.length - 1) {
+    } else if (i === segs.length - 1 && !hasError) {
       // bare trailing fielder run = batter putout at first
       outs += 1;
       batterOut = true;

@@ -109,6 +109,14 @@ describe("parseEvent — outs, double plays, force outs", () => {
     expect(p.outsOnPlay).toBe(0);
   });
 
+  it("an error on the fielding play leaves the batter safe at first, no out", () => {
+    // 4E1: second baseman fields it, the pitcher covering first muffs it. No
+    // explicit B-1 — the batter still reaches.
+    const p = parseEvent("4E1/G4");
+    expect(p.batterReached).toBe(true);
+    expect(p.outsOnPlay).toBe(0);
+  });
+
   it("lined into double play is a DP, not a TP", () => {
     const p = parseEvent("6(B)5(3)/LDP");
     expect(p.doublePlay).toBe(true);
@@ -201,6 +209,10 @@ describe("parseEvent — fielding credits", () => {
 
   it("plain error charges the fielder and records no putout", () => {
     expect(field("E6")).toEqual({ 6: "0-0-1" });
+  });
+
+  it("error on the throw to first: assist to the fielder, error on the receiver, no putout", () => {
+    expect(field("4E1/G4")).toEqual({ 4: "0-1-0", 1: "0-0-1" });
   });
 
   it("caught stealing: catcher assist, tag putout", () => {

@@ -23,11 +23,16 @@ SET search_path TO retrosheet;
 -- scripts/update.sh). Set inside the load transaction (so a failed load never
 -- records it); NULL after a partial SEASONS= load. update.sh reloads when it
 -- differs.
+--
+-- etl_version is src/etl/schemaVersion.ts's ETL_VERSION at that load: which
+-- parser/loader logic produced the rows. Set alongside data_version; update.sh
+-- reloads when it differs.
 CREATE TABLE IF NOT EXISTS schema_meta (
   singleton   boolean PRIMARY KEY DEFAULT true,
   version     integer NOT NULL,
   applied_at  timestamptz NOT NULL DEFAULT now(),
   data_version text,
+  etl_version integer,
   loaded_at   timestamptz,
   CONSTRAINT schema_meta_singleton CHECK (singleton)
 );

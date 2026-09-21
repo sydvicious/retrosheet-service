@@ -169,3 +169,18 @@ describe("replayGame — caught stealing / pickoffs remove the runner", () => {
     expect(po.outsOnPlay).toBe(0);
   });
 });
+
+describe("replayGame — batter safe on an error in a fielding play", () => {
+  // BOS200407240, top 2nd: A-Rod reached on 4E1, went 1-3 on Posada's single,
+  // and scored on Matsui's double. Treating 4E1 as an out dropped that run.
+  it("4E1 puts the batter on first; his later advances and run count", () => {
+    const rows = game(["4E1/G4", "S8/L8RS.1-3", "D8/F8LXD+.3-H(UR);1-3"]);
+    expect(rows[0]!.batterDest).toBe(1);
+    expect(rows[0]!.outsOnPlay).toBe(0);
+    expect(rows[1]!.base1Before).toBe("bat00");
+    expect(rows[1]!.run1Dest).toBe(3);
+    expect(rows[2]!.base3Before).toBe("bat00");
+    expect(rows[2]!.outsBefore).toBe(0);
+    expect(rows[2]!.runsOnPlay).toBe(1);
+  });
+});

@@ -8,9 +8,10 @@
 #   1. refresh the Retrosheet data (scripts/fetch-data.sh)
 #   2. rebuild the images from the working tree
 #   3. ask the loader whether the database is current — same schema version as
-#      this code AND loaded from the same data (the clone's commit plus a hash of
-#      the game logs fetch-data.sh downloads, which aren't in the clone)
-#   4. if either differs, reload (a schema change drops and rebuilds the schema
+#      this code, loaded by the same ETL version (parser/loader logic), AND loaded
+#      from the same data (the clone's commit plus a hash of the game logs
+#      fetch-data.sh downloads, which aren't in the clone)
+#   4. if any differs, reload (a schema change drops and rebuilds the schema
 #      first, so the API/MCP are unavailable during that load; a data-only change
 #      reloads in one transaction and they keep serving the old data)
 #   5. bring up db/api/mcp on the new images (recreating api/mcp after a reload
