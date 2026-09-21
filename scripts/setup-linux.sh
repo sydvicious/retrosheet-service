@@ -2,9 +2,10 @@
 # Copyright (c) 2026 Syd Polk
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Ready a Linux host to run retrosheet-service via Docker. Installs git and the
-# Docker Engine + Compose/Buildx plugins (via Docker's official get.docker.com
-# script), enables the service, and adds the current user to the docker group.
+# Ready a Linux host to run retrosheet-service via Docker. Installs git, tmux,
+# and the Docker Engine + Compose/Buildx plugins (via Docker's official
+# get.docker.com script), enables the service, and adds the current user to the
+# docker group.
 # Idempotent — safe to re-run. Requires root or sudo.
 #
 # After this (log out/in once so the docker group applies), from the repo dir:
@@ -24,26 +25,33 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
-# --- git (via the distro package manager) -------------------------------------
-if ! command -v git >/dev/null 2>&1; then
-  echo "==> Installing git …"
+# --- git + tmux (via the distro package manager) ------------------------------
+# tmux lets a multi-minute load survive a dropped SSH session.
+install_pkg() {
   if command -v apt-get >/dev/null 2>&1; then
-    $SUDO apt-get update && $SUDO apt-get install -y git
+    $SUDO apt-get update && $SUDO apt-get install -y "$1"
   elif command -v dnf >/dev/null 2>&1; then
-    $SUDO dnf install -y git
+    $SUDO dnf install -y "$1"
   elif command -v yum >/dev/null 2>&1; then
-    $SUDO yum install -y git
+    $SUDO yum install -y "$1"
   elif command -v pacman >/dev/null 2>&1; then
-    $SUDO pacman -Sy --noconfirm git
+    $SUDO pacman -Sy --noconfirm "$1"
   elif command -v zypper >/dev/null 2>&1; then
-    $SUDO zypper install -y git
+    $SUDO zypper install -y "$1"
   else
-    echo "Unknown package manager — install git manually, then re-run." >&2
+    echo "Unknown package manager — install $1 manually, then re-run." >&2
     exit 1
   fi
-else
-  echo "==> git already installed."
-fi
+}
+
+for pkg in git tmux; do
+  if ! command -v "$pkg" >/dev/null 2>&1; then
+    echo "==> Installing $pkg …"
+    install_pkg "$pkg"
+  else
+    echo "==> $pkg already installed."
+  fi
+done
 
 # --- Docker Engine + Compose v2 + Buildx --------------------------------------
 # get.docker.com installs docker-ce, the CLI, containerd, and the

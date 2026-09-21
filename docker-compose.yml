@@ -3,6 +3,12 @@
 services:
   db:
     image: postgres:17
+    restart: unless-stopped
+    # The loader's daily-stat aggregations are single big sorts over ~16M plays;
+    # the 4MB default work_mem spills them to disk. work_mem is per sort, per
+    # connection, so this assumes few concurrent heavy queries (fine for a
+    # personal server; lower it if many clients hit the API at once).
+    command: ["postgres", "-c", "work_mem=256MB", "-c", "maintenance_work_mem=1GB"]
     environment:
       POSTGRES_USER: retrosheet
       POSTGRES_PASSWORD: retrosheet
@@ -19,6 +25,7 @@ services:
 
   api:
     build: .
+    restart: unless-stopped
     init: true          # tini as PID 1 so SIGINT/SIGTERM (Ctrl-C, docker stop) actually stop node
     depends_on:
       db:
@@ -35,6 +42,7 @@ services:
   # e.g. add http://<host>:5051/mcp as a remote MCP server (over Tailscale).
   mcp:
     build: .
+    restart: unless-stopped
     init: true
     depends_on:
       db:

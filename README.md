@@ -117,8 +117,8 @@ Colima only serves Docker while its VM is up (`colima status` / `colima stop`);
 (`brew install --cask docker`) is a fine alternative — it bundles the engine and
 Compose — but it's a GUI app you must keep running.
 
-On **Linux**, run `./scripts/setup-linux.sh` (installs git + Docker Engine + the
-Compose/Buildx plugins; no VM involved), or bootstrap a bare host remotely:
+On **Linux**, run `./scripts/setup-linux.sh` (installs git, tmux, Docker Engine,
+and the Compose/Buildx plugins; no VM involved), or bootstrap a bare host remotely:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/sydvicious/retrosheet-service/main/scripts/setup-linux.sh)"
