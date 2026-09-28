@@ -90,13 +90,17 @@ which lifts final-score agreement from 86.7% to 98.8%.
 That correction is not cosmetic: it removes two false positives (Jun 8, 1989 and
 Aug 21, 1990, both really 10-run leads inflated by a phantom run) and recovers
 one false negative (Sep 4, 2002, where a dropped run hid the ninth-inning tie).
-Any future study that turns on the score *at a moment* rather than at the end
-should do the same until the parser is fixed — see the verification bullet under
-"Future — full game-state analysis" in the project plan.
+This study ran against a database loaded by ETL version 1 or earlier. The parser
+bugs behind the disagreement are fixed in ETL version 2, where the replay
+reproduces every game-log final. A future study that turns on the score *at a
+moment* should check `schema_meta.etl_version` and re-derive runs the same way
+on an older database — see "`play.runs_on_play` does not reproduce the final
+score" in [../README.md](../README.md).
 
 ## Attended games
 
 The starred rows come from `../hof-sightings/attended-games.tsv`. This is the
-second study to read that file, which is exactly the trigger for **Phase 9** in
-the project plan — promoting the attended log to a first-class `attended_game`
-table so studies join it in-DB instead of parsing a sibling study's tsv.
+second study to read that file, which is the case for promoting the attended
+log to a first-class `attended_game` table so studies join it in-DB instead of
+parsing a sibling study's tsv — see "Attended-games table" under *To do* in
+[../../README.md](../../README.md).

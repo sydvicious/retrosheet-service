@@ -339,8 +339,9 @@ CREATE INDEX IF NOT EXISTS play_inning_idx ON play (inning);
 -- Phase 4 — daily stat lines. One row per player per game, AGGREGATED IN SQL
 -- from the play table (+ earned_runs / game / lineup_start). No new parsing;
 -- these are derived and rebuilt on every load, after the play table is filled.
--- Fielding stat lines (PO/A/E per position) are intentionally out of scope: they
--- need the parsed fielder sequence, which the play table does not persist.
+-- Fielding stat lines are the exception: they need the parsed fielder sequence,
+-- which the play table does not persist, so fielding_daily (below) is derived in
+-- the game replay instead.
 -- ===========================================================================
 
 -- Batting line per (game, batter). Runs = runs the player scored (as batter or

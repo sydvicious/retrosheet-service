@@ -6,8 +6,9 @@
 // in SQL. No new parsing — these tables are recomputed on every load, after the
 // play table is filled, inside the same transaction as everything else.
 //
-// Scope: batting and pitching. Fielding (PO/A/E per position) is out of scope —
-// it needs the parsed fielder sequence, which the play table does not persist.
+// Scope: batting and pitching. Fielding lines (fielding_daily) are not built
+// here: they need the parsed fielder sequence, which the play table does not
+// persist, so the game replay derives them and events.ts loads them.
 //
 // Notes on a couple of derivations:
 //  * Batting `runs` = runs the player scored, as the batter (batter_dest = 4) or

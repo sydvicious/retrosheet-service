@@ -59,7 +59,7 @@ const num = (n: number | null) => (n == null ? "—" : n.toLocaleString("en-US")
 
 // Games Syd was at. The attended log lives in the hof-sightings study; this is
 // the second consumer, which is the case for promoting it to a mart table (see
-// "Phase 9 — Attended-games table" in the project plan).
+// "Attended-games table" under To do in the root README).
 function attendedGameIds(): Set<string> {
   const ids = new Set<string>();
   const tsv = join(DIR, "..", "hof-sightings", "attended-games.tsv");

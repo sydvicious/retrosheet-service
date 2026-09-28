@@ -15,22 +15,25 @@ Built in phases:
 - **Phase 0 — running skeleton** ✅ Postgres + PostGraphile via Docker Compose.
 - **Phase 1 — reference data** ✅ people, teams, ballparks, coaches, ejections,
   relatives, rosters, schedules.
-- **Phase 2 — game / lineup / substitution / comment data** ✅ ~199k games with
+- **Phase 2 — game / lineup / substitution / comment data** ✅ 201,874 games with
   metadata, starting lineups, substitutions, comments, earned runs, adjustments,
   and verbatim `game_info` — parsed clean-room from the event files.
 - **Phase 6 — MCP server** ✅ read-only tools over the mart (stdio + streamable
   HTTP) so Claude can query the data. (See *MCP server* below.)
-- **Phase 3 — play-by-play events** ✅ clean-room parser (~99.9% parity vs the
-  Chadwick oracle) + game replay → the `play` table (event type, outs, RBIs,
-  base state, pitcher, runner destinations). Ongoing refinement via
-  `npm run validate:plays` and `npm run audit:plays`.
+- **Phase 3 — play-by-play events** ✅ clean-room parser + game replay → the
+  `play` table (event type, outs, RBIs, base state, pitcher, runner
+  destinations). Against the Chadwick oracle, every scored field matches on all
+  25,665 plays in the golden fixtures (`npm run validate:plays`). Replayed final scores match the Retrosheet game
+  logs in every game (`npm run validate:scores`). Ongoing refinement via those
+  and `npm run audit:plays`.
 - **Phase 4 — daily stat lines** ✅ per-player-per-game **batting**, **pitching**,
   and **fielding** lines (`batting_daily`, `pitching_daily`, `fielding_daily`).
   Batting/pitching are aggregated in pure SQL from the `play` table; fielding
   (PO/A/E/DP/TP/PB/XI per position, innings, GS) is derived in the game replay,
   which tracks the full defensive alignment. Exposed over GraphQL and via the
   `player_stats` / `player_game_log` MCP tools. Fielding-credit parity vs the
-  Chadwick oracle is scored by `npm run validate:fielding` (~99.9%).
+  Chadwick oracle is scored by `npm run validate:fielding`: putouts, assists and
+  errors match on all 25,665 fixture plays.
 - **Phase 5 — web front-end** ⏳
 
 ## Design notes
@@ -260,18 +263,74 @@ isn't a `SELECT`/`WITH`.
 
 ```bash
 npm run typecheck     # tsc, no emit
-npm test              # vitest — parser unit tests against golden fixtures
+npm test              # vitest — hand-authored parser and replay unit tests
 npm run build         # tsc -> dist/
 npm run mcp           # run the MCP server (stdio); MCP_TRANSPORT=http for HTTP
 npm run validate:plays    # dev-only: play-parser parity vs Chadwick goldens
 npm run validate:fielding # dev-only: fielding-credit parity vs Chadwick goldens
 npm run audit:plays       # dev-only: log plays the parser doesn't fully understand
+npm run validate:scores   # dev-only: replayed final scores vs the Retrosheet game logs
 ```
 
 `audit:plays` replays the real event files (`RETROSHEET_DIR=…`) and reports plays
 with unknown event codes, unparseable runner-advance tokens, or impossible
 out-counts — surfacing parser gaps as concrete work. It needs no Chadwick and no
 database.
+
+`validate:scores` replays the real event files (`RETROSHEET_DIR=…`), totals the
+runs scored by each side, and compares them with the final score in the
+Retrosheet game logs. It exits non-zero when any game disagrees. `SEASONS=2024,1975`
+limits the run. It needs no Chadwick and no database.
+
+## Known problems
+
+As of 2026-09-28. Update this list when a problem is fixed or a new one is found.
+
+**Deployment**
+
+- **`warehouse` still serves data loaded by ETL version 1.** In that data,
+  `play.runs_on_play` disagrees with the game-log final in 25,640 of 201,870
+  games (12.7%); `away_score_before`, `home_score_before`, and
+  `batting_daily.runs` inherit the error. The fixes are ETL version 2. Check
+  with `SELECT etl_version FROM schema_meta`; running `./scripts/update.sh` on
+  the host reloads.
+
+**Wrong results**
+
+- **Pitching `runs` are charged to the pitcher on the mound when the run
+  scores**, not to the pitcher who put the runner on base. `earned_runs` comes
+  from Retrosheet's own records and is not affected.
+- **Pinch runners keep the identity of the runner they replaced.** A run scored
+  by a pinch runner is credited in `batting_daily` to the original runner.
+
+**Not verified**
+
+- **Score before each play.** The final score is checked
+  (`npm run validate:scores`); the running score is not. A run credited to the
+  wrong play within a half-inning would pass the check.
+- **`pitching_daily.batters_faced`** has no independent check.
+- **Base state and runner destinations** are not compared with the Chadwick
+  oracle; `validate:plays` scores each play string on its own.
+- **Chadwick parity rests on four team-seasons** (1927 NYA, 1975 CIN, 1998 SLN,
+  2024 SFN), 25,665 of about 16 million plays.
+
+**Data gaps**
+
+- **Early seasons name no fielder on many outs** (Retrosheet's `99`), so
+  putouts fall short of outs. Putouts as a share of outs recorded: 82% in the
+  1900s, 85% in the 1910s, 93% from the 1920s through the 1940s, 99.3% in the
+  1950s, and 99.8% or better from the 1960s on. Fielding totals before 1950
+  undercount.
+- **Four games have no game-log row**, so their scores cannot be checked:
+  `PIT190010150`, `PIT190010160`, `PIT190010170`, `PIT190010180`.
+
+**Maintenance**
+
+- **`src/tools/validate-scores.ts` reads game-log fields itself**, repeating the
+  field positions in `src/etl/gamelog.ts`. A change to one needs the same change
+  in the other.
+- **The tests and validation tools are run by hand.** The repo has no CI
+  workflow.
 
 ## To do
 
@@ -280,14 +339,27 @@ database.
   it declaratively as an Ansible role for reproducible provisioning across hosts
   (e.g. the `warehouse` Linux box): provision host → install Docker → clone →
   load → bring up `db`/`api`/`mcp`.
-- **Higher play-by-play parity** — a game-ordered harness that diffs base-runner
-  destinations / pitcher / outs-before against the Chadwick oracle at scale, and
-  resolving pinch-runner identity by lineup slot. `npm run audit:plays` tracks the
-  remaining long tail (currently ~0.04% of plays have an impossible out-count from
-  rare encodings / genuine 4-out appeal plays).
+- **Higher play-by-play parity** — final scores now match the Retrosheet game
+  logs in every game (`npm run validate:scores`), and `npm run audit:plays`
+  reports no unknown events, unparsed advances, or impossible out-counts. Still
+  unverified at play level: score-before, base-runner identity, and
+  `pitching_daily.batters_faced`. Remaining work: a game-ordered harness that
+  diffs base-runner destinations / pitcher / outs-before against the Chadwick
+  oracle at scale, and resolving pinch-runner identity by lineup slot.
 - **Phase 5** — the web front-end.
+- **Forfeits, suspended games, and the official result** — the loader drops the
+  game logs' forfeit and completion fields, so the mart stores the score when
+  play stopped and a score-derived win or loss is wrong for forfeited games.
+  Load both fields and expose the official result. The measurements are in
+  `research/README.md`.
+- **Attended-games table** — promote `research/hof-sightings/attended-games.tsv`
+  to an `attended_game` table in the mart, so studies join it in the database.
+  Two studies already read the file.
+- **Split research into its own repository** — the studies only consume the
+  mart. Three studies exist now; `research/README.md` is written to become the
+  root README of that repository.
 - **Reload only the seasons that changed** — investigate. Any data change now
-  reloads every season (~20 min). `git diff --name-only` between the recorded
+  reloads every season (several minutes). `git diff --name-only` between the recorded
   `schema_meta.data_version` commit and the new one maps changed
   `seasons/<year>/` paths to seasons; per-game tables could be replaced a season
   at a time, while the small reference tables just reload. Open questions: the

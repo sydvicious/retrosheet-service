@@ -14,8 +14,8 @@ findings document.
 | [blown-11-run-leads](blown-11-run-leads/) | Which games did somebody blow an 11-run lead, and how many of them was I at? |
 
 > This file is intended to become the root README when research moves to its own
-> repository. See "Future — split research projects into their own repo" in the
-> project plan.
+> repository. See "Split research into its own repository" under *To do* in
+> [../README.md](../README.md).
 
 ## Ideas — not yet started
 
@@ -145,7 +145,8 @@ pages produce, sorted globally rather than per club.
   team gets a W or an L — carry a decisive score and currently read as ordinary
   wins and losses. Forfeits cluster in the 1880s–90s, which is precisely where
   the worst-start lists live. **Fix at the loader, not in the study** — see
-  "Forfeits, suspended games, and the official result" in the project plan.
+  "Forfeits, suspended games, and the official result" under *To do* in
+  [../README.md](../README.md).
 
 ## Conventions
 
@@ -247,22 +248,39 @@ conflates "which league" with "league history".
 
 ### `play.runs_on_play` does not reproduce the final score
 
-Summed per game it disagrees with `game_log`'s official final in **13% of games
-(26,875 of 201,870)** — in *both* directions, so the errors don't wash out. Two
-parser bugs: a **phantom run** credited on force outs that carry no advance
-section (`64(1)/FO`, `5(2)/FO` — 19,646 plays / 18,582 games), and a **dropped
-run** on multi-run plays where the second is marked `(UR)`
-(`S9/L9M.3-H;2-H(UR);1-3` scores two, the mart records one — 6,092 plays / 5,404
-games).
+This depends on which ETL version loaded the database
+(`SELECT etl_version FROM schema_meta`).
+
+**ETL version 1 and earlier.** Summed per game, `runs_on_play` disagrees with
+`game_log`'s official final in **12.7% of games (25,640 of 201,870)**, measured
+on `warehouse` on 2026-09-28 — in *both* directions, so the errors don't wash
+out. The causes were replay bugs:
+
+- a **phantom run** on an inning-ending force out with the bases loaded and no
+  advance section (`64(1)/FO`, `5(2)/FO`): the retired runner stayed on the
+  bases and was forced along;
+- a **lost runner** after an out attempt negated by an error (`FC6.1X2(6E4)`,
+  `K.BX1(2E3)`): the runner was safe but dropped from the bases, so his later
+  run was not counted;
+- the **automatic runner** in extra innings (`radj` records, 2020 on) was never
+  placed on base;
+- a **ground-rule double written with a fielder digit** (`DGR7`) left the batter
+  off the bases.
 
 Season and career totals absorb this; anything that needs the score **at a
-moment** does not. Re-deriving runs from the raw event string gets agreement to
-98.8% — see `RUNS` in [blown-11-run-leads/queries.ts](blown-11-run-leads/queries.ts). In that
-study the stored column produced two false positives and, worse, one false
-negative. `away_score_before` / `home_score_before` inherit the same error.
+moment** does not. On such a database, re-derive runs from the raw event string
+— see `RUNS` in [blown-11-run-leads/queries.ts](blown-11-run-leads/queries.ts), which reached
+98.8% agreement. In that study the stored column produced two false positives
+and, worse, one false negative. `away_score_before` / `home_score_before`
+inherit the same error.
 
-Validate any play-level score work against `game_log` finals; the game logs are a
-separate Retrosheet download, so the check is independent of the parser.
+**ETL version 2.** Those bugs are fixed. Replaying the event files reproduces the
+game-log final in all 201,870 games that have a game-log row
+(`npm run validate:scores` in the service repo).
+
+Either way, validate any play-level score work against `game_log` finals; the
+game logs are a separate Retrosheet download, so the check is independent of the
+parser. A matching final does not prove the score before each play is right.
 
 ### `teams` holds one nickname per franchise, the current one
 

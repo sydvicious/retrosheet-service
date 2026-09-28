@@ -132,8 +132,9 @@ rather than a follow-up: the state column this study needed already existed, and
 the reason it couldn't be used had nothing to do with what was persisted. The
 check that catches both bugs is one full-table pass — each game's cumulative
 score after the last play must equal `game_log`'s final — and it is *independent*
-of the parser, because the game logs are a separate Retrosheet download. Recorded
-under "Future — full game-state analysis" in the project plan.
+of the parser, because the game logs are a separate Retrosheet download. That
+check now exists as `npm run validate:scores`, and the two bugs are fixed in ETL
+version 2.
 
 ## Caveats
 

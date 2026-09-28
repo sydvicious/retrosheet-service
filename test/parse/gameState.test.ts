@@ -10,7 +10,7 @@
 // (npm run validate:plays); this locks base-running behavior in for CI.
 import { describe, it, expect } from "vitest";
 import { replayGame, type PlayRow } from "../../src/parse/gameState.js";
-import type { ParsedGame, PlayRecord } from "../../src/parse/eventFile.js";
+import { parseEventFile, type ParsedGame, type PlayRecord } from "../../src/parse/eventFile.js";
 
 /** Build a minimal one-inning (visitor batting) game from a list of events. */
 function game(events: string[]): PlayRow[] {
@@ -182,5 +182,139 @@ describe("replayGame — batter safe on an error in a fielding play", () => {
     expect(rows[2]!.base3Before).toBe("bat00");
     expect(rows[2]!.outsBefore).toBe(0);
     expect(rows[2]!.runsOnPlay).toBe(1);
+  });
+});
+
+describe("replayGame — runner retired inside a force out", () => {
+  // HOU201910190, bottom 8th: bases loaded, two out, 64(1)/FO ends the inning.
+  // The retired runner used to be forced along, pushing the man on third home.
+  it("an inning-ending force out with the bases loaded scores nobody", () => {
+    const rows = game(["K", "K", "S8", "S8.1-2", "W", "64(1)/FO/G"]);
+    const fo = rows[5]!;
+    expect(fo.outsBefore).toBe(2);
+    expect(fo.base1Before).toBe("bat04");
+    expect(fo.base3Before).toBe("bat02");
+    expect(fo.outsOnPlay).toBe(1);
+    expect(fo.run1Dest).toBe(0); // retired at second
+    expect(fo.run2Dest).toBe(2);
+    expect(fo.run3Dest).toBe(3);
+    expect(fo.batterDest).toBe(1);
+    expect(fo.runsOnPlay).toBe(0);
+  });
+
+  it("a force at third retires the runner from second and moves the runner from first up", () => {
+    const rows = game(["S8", "S8.1-2", "W", "5(2)/FO/G56"]);
+    const fo = rows[3]!;
+    expect(fo.run2Dest).toBe(0);
+    expect(fo.run1Dest).toBe(2); // forced by the batter
+    expect(fo.run3Dest).toBe(3);
+    expect(fo.runsOnPlay).toBe(0);
+  });
+
+  it("the retired runner is gone on the next play", () => {
+    const rows = game(["S8", "64(1)/FO", "S8.1-2"]);
+    expect(rows[2]!.base1Before).toBe("bat01"); // the force-out batter
+    expect(rows[2]!.base2Before).toBeNull();
+  });
+
+  it("a double play removes the runner retired at second", () => {
+    const rows = game(["S8", "S8.1-3", "64(1)3/GDP.3-H(NR)", "S8"]);
+    expect(rows[2]!.run1Dest).toBe(0);
+    expect(rows[2]!.runsOnPlay).toBe(1);
+    expect(rows[3]!.base1Before).toBeNull();
+  });
+});
+
+describe("replayGame — runner safe on an error in an 'X' advance", () => {
+  // CHA197805100, top 2nd: FC4.1X2(14E6) leaves the runner safe at second; he
+  // went to third on the double play and scored on the double.
+  it("1X2 with an error keeps the runner on second and his run counts", () => {
+    const rows = game(["W", "FC4.1X2(14E6)", "64(1)3/GDP.2-3", "D7.3-H(UR)"]);
+    expect(rows[1]!.run1Dest).toBe(2);
+    expect(rows[1]!.outsOnPlay).toBe(0);
+    expect(rows[2]!.base1Before).toBe("bat01");
+    expect(rows[2]!.base2Before).toBe("bat00");
+    expect(rows[3]!.base3Before).toBe("bat00");
+    expect(rows[3]!.runsOnPlay).toBe(1);
+  });
+
+  // CLE199907310, top 5th: batter reached on a dropped third strike and error.
+  it("K.BX1 with an error puts the batter on first", () => {
+    const rows = game(["K.BX1(2E3)", "T8/F8LXD.1-H(UR)"]);
+    expect(rows[0]!.batterDest).toBe(1);
+    expect(rows[0]!.outsOnPlay).toBe(0);
+    expect(rows[1]!.base1Before).toBe("bat00");
+    expect(rows[1]!.runsOnPlay).toBe(1);
+  });
+
+  it("a runner safe at home on an error scores", () => {
+    const rows = game(["T9", "S9.3XH(9E2)(UR)"]);
+    expect(rows[1]!.run3Dest).toBe(4);
+    expect(rows[1]!.runsOnPlay).toBe(1);
+    expect(rows[1]!.outsOnPlay).toBe(0);
+  });
+
+  it("a plain 'X' advance still retires the runner", () => {
+    const rows = game(["T9", "S9.3XH(92)"]);
+    expect(rows[1]!.run3Dest).toBe(0);
+    expect(rows[1]!.runsOnPlay).toBe(0);
+    expect(rows[1]!.outsOnPlay).toBe(1);
+  });
+});
+
+describe("replayGame — runner adjustment (radj) places the automatic runner", () => {
+  // BOS202104060 shape: the runner starts the extra inning on second.
+  const text = [
+    "id,TST202104060",
+    "play,9,1,bat90001,22,,K",
+    "play,9,1,bat90002,22,,K",
+    "play,9,1,bat90003,22,,K",
+    "play,10,0,bat10001,00,,NP",
+    'sub,pit00002,"New Pitcher",1,0,1',
+    "radj,run00001,2",
+    'com,"Runner starts inning at 2nd base."',
+    "play,10,0,bat10001,11,,D7/L5D.2-H(UR)",
+    "radj,run00002,2",
+    "play,10,1,bat10002,00,,43/G4M.2-3",
+    "play,10,1,bat10003,00,,9/SF.3-H(UR)",
+    "",
+  ].join("\n");
+  const rows = replayGame(parseEventFile(text)[0]!).plays;
+
+  it("puts the runner on second before the inning's first play", () => {
+    const d = rows[3]!;
+    expect(d.inning).toBe(10);
+    expect(d.base2Before).toBe("run00001");
+    expect(d.run2Dest).toBe(4);
+    expect(d.runsOnPlay).toBe(1);
+  });
+
+  it("does not carry the previous half-inning's runners over", () => {
+    const g = rows[4]!;
+    expect(g.half).toBe(1);
+    expect(g.base1Before).toBeNull();
+    expect(g.base2Before).toBe("run00002");
+    expect(g.base3Before).toBeNull();
+    expect(g.awayScoreBefore).toBe(1);
+  });
+
+  it("counts the placed runner's run when he scores later in the inning", () => {
+    expect(rows[5]!.base3Before).toBe("run00002");
+    expect(rows[5]!.runsOnPlay).toBe(1);
+  });
+});
+
+describe("replayGame — ground-rule double with a fielder digit", () => {
+  // ANA201805120, bottom 3rd: Cozart's DGR7 put him on second; he took third on
+  // the wild pitch and scored on the force out. Classifying DGR7 as unknown left
+  // him off the bases and dropped the run.
+  it("DGR7 puts the batter on second; his later run counts", () => {
+    const rows = game(["53/G5+", "DGR7/F7LD+", "WP.2-3", "W", "54(1)/FO/G5+.3-H"]);
+    expect(rows[1]!.batterDest).toBe(2);
+    expect(rows[2]!.base2Before).toBe("bat01");
+    expect(rows[2]!.run2Dest).toBe(3);
+    expect(rows[4]!.base3Before).toBe("bat01");
+    expect(rows[4]!.run1Dest).toBe(0); // the walked batter is forced out at second
+    expect(rows[4]!.runsOnPlay).toBe(1);
   });
 });

@@ -46,7 +46,7 @@ export const EVENT_CD = {
 export interface Advance {
   from: string; // 'B' (batter) | '1' | '2' | '3'
   to: string; // '1' | '2' | '3' | 'H'
-  out: boolean; // true when the runner was put out (encoded with 'X')
+  out: boolean; // true when encoded with 'X' (see isRetired: an error can negate it)
   params: string[]; // parenthetical annotations, e.g. 'E4', 'NR', '64', 'WP'
 }
 
@@ -123,6 +123,35 @@ function parseAdvance(token: string): Advance | null {
 }
 
 /**
+ * Whether an advance actually retires the runner. An 'X' advance is an out
+ * unless a fielding error negates it: "1X2(6E4)" and "BX1(2E3)" leave the runner
+ * safe at the target base. When the error is followed by a separate clean
+ * fielder sequence, e.g. "BXH(E4)(32)" or "1XH(7432/TH)(E7)", the runner was
+ * put out and the error belongs to another part of the play, so the out stands.
+ */
+export function isRetired(a: Advance): boolean {
+  if (!a.out) return false;
+  const hasError = a.params.some((p) => /E\d/.test(p));
+  // A fielder sequence with no error in it, e.g. "32" or "7432/TH".
+  const hasCleanPutout = a.params.some((p) => /^\d/.test(p) && !/E\d/.test(p));
+  return !hasError || hasCleanPutout;
+}
+
+/**
+ * Runners retired inside a fielder-sequence basic: each "(base)" marker names
+ * the base the retired runner started from, e.g. "64(1)3" and "5(2)/FO".
+ * "(B)" is the batter and is not returned here.
+ */
+export function runnersRetiredInBasic(events: SubEvent[]): string[] {
+  const retired: string[] = [];
+  for (const e of events) {
+    if (!/^\d/.test(e.basic)) continue;
+    for (const m of e.basic.matchAll(/\(([123])\)/g)) retired.push(m[1] ?? "");
+  }
+  return retired;
+}
+
+/**
  * Tokenize a fielder-sequence out basic (e.g. "63", "36(1)1", "5(2)", "6(B)5(3)")
  * into putouts. A "(base)" marks a runner (or batter, "(B)") retired; a bare
  * trailing fielder run is the batter retired at first. Force outs like "5(2)"
@@ -189,7 +218,8 @@ function classifyBasic(basicRaw: string): BasicClass {
 
   // Hits (check before single-letter ambiguity; SB handled above).
   if (basic === "HR" || basic === "H" || /^HR?\d/.test(basic)) return batter(EVENT_CD.homeRun, 4, false, true);
-  if (basic === "DGR") return batter(EVENT_CD.double, 2, false, true);
+  // Ground-rule double, with or without a fielder digit ("DGR", "DGR7").
+  if (basic.startsWith("DGR")) return batter(EVENT_CD.double, 2, false, true);
   if (/^S\d|^S$/.test(basic)) return batter(EVENT_CD.single, 1, false, true);
   if (/^D\d|^D$/.test(basic)) return batter(EVENT_CD.double, 2, false, true);
   if (/^T\d|^T$/.test(basic)) return batter(EVENT_CD.triple, 3, false, true);
@@ -217,6 +247,9 @@ const NAME_BY_CODE: Record<number, string> = Object.fromEntries(
 // logic: fielders who handle the ball before an out get assists; the fielder who
 // records the out (marked by a following "(base)", or the last fielder when the
 // play makes an out) gets the putout; "E" marks an error by the next fielder.
+// A fielder earns at most one assist per out, and the fielder who makes the
+// putout also earns one when he threw the ball earlier in the same sequence (a
+// rundown such as "3XH(1252)", or "343").
 // Correctness here is iterative — scored against the Chadwick oracle via
 // `npm run validate:fielding`.
 
@@ -260,13 +293,10 @@ function creditFielderSeq(seq: string, map: CreditMap, outMade: boolean): void {
   for (let i = 0; i < tokens.length; i++) if (!tokens[i]!.err) lastFielderIdx = i;
 
   let chain: number[] = []; // fielders handling since the last putout
-  const assistChain = (except: number): void => {
-    const seen = new Set<number>();
-    for (const p of chain) {
-      if (p !== except && !seen.has(p)) {
-        credit(map, p, "assist");
-        seen.add(p);
-      }
+  // Assist every distinct fielder in `handlers`, skipping `except` when given.
+  const assist = (handlers: number[], except?: number): void => {
+    for (const p of new Set(handlers)) {
+      if (p !== except) credit(map, p, "assist");
     }
   };
   for (let i = 0; i < tokens.length; i++) {
@@ -274,17 +304,21 @@ function creditFielderSeq(seq: string, map: CreditMap, outMade: boolean): void {
     if (t.err) {
       credit(map, t.fielder, "error");
       // Fielders who handled the ball before the muffed play still get assists.
-      assistChain(t.fielder);
+      assist(chain, t.fielder);
       chain = [];
       continue;
     }
-    chain.push(t.fielder);
+    // The same fielder twice in a row is one handling ("3(B)3(1)": he made the
+    // first putout and then the second himself, with no throw in between).
+    if (chain[chain.length - 1] !== t.fielder) chain.push(t.fielder);
     // A "(base)" always marks a putout; a bare trailing fielder makes the final
     // out only when the play recorded one and wasn't negated by an error.
     const isPutout = t.base !== null || (outMade && !hasError && i === lastFielderIdx);
     if (isPutout) {
       credit(map, t.fielder, "po");
-      assistChain(t.fielder);
+      // Everyone who handled the ball before the final touch — including the
+      // putout fielder himself if he threw it earlier in the sequence.
+      assist(chain.slice(0, -1));
       chain = [t.fielder]; // a relay: this fielder can assist the next putout
     }
   }
@@ -310,11 +344,16 @@ function computeFielding(
   // Passed balls are charged to the catcher (position 2).
   if (passedBall) credit(map, 2, "pb");
 
-  // Primary batter event. "99" is Retrosheet's unknown-fielder out — no credit.
+  // Primary batter event. "99" is Retrosheet's unknown-fielder out — no credit,
+  // also when it carries a runner marker ("99(1)/FO").
   if (primary.code === EVENT_CD.genericOut) {
-    if (primaryBasic !== "99") creditFielderSeq(primaryBasic, map, true);
+    if (!primaryBasic.startsWith("99")) creditFielderSeq(primaryBasic, map, true);
   } else if (primary.code === EVENT_CD.strikeout && !batterReached && !batterAdvance?.out) {
-    credit(map, 2, "po"); // strikeout: putout to the catcher
+    // A strikeout is a putout to the catcher unless fielders are named: "K23" is
+    // a dropped third strike, catcher to first baseman.
+    const fielders = /^K(\d+)/.exec(primaryBasic)?.[1];
+    if (fielders) creditFielderSeq(fielders, map, true);
+    else credit(map, 2, "po");
   } else if (primary.code === EVENT_CD.error || primary.code === EVENT_CD.foulError) {
     creditFielderSeq(primaryBasic, map, false); // "E6" / "FLE6" — error, no putout
   }
@@ -400,10 +439,14 @@ export function parseEvent(rawInput: string): ParsedPlay {
   const sacHit = hasMod(/^SH/);
   // Double/triple play are indicated by a /DP-family or /TP-family modifier
   // (DP, GDP, LDP, FDP, …; TP, GTP, LTP). Force outs (/FO) are NOT double plays.
-  const doublePlay = hasMod(/DP$/);
-  const triplePlay = hasMod(/TP$/);
-  const wildPitch = classes.some((c) => c.code === EVENT_CD.wildPitch);
-  const passedBall = classes.some((c) => c.code === EVENT_CD.passedBall);
+  // "NDP" / "NTP" say the opposite: no double (triple) play is credited.
+  const doublePlay = hasMod(/^(?!N).*DP$/);
+  const triplePlay = hasMod(/^(?!N).*TP$/);
+  // A wild pitch or passed ball is either its own sub-event ("WP", "K+PB") or a
+  // flag on a runner advance ("SB2.1-2(PB)", "SBH.3-H(WP)").
+  const advanceFlag = (flag: string): boolean => advances.some((a) => a.params.includes(flag));
+  const wildPitch = classes.some((c) => c.code === EVENT_CD.wildPitch) || advanceFlag("WP");
+  const passedBall = classes.some((c) => c.code === EVENT_CD.passedBall) || advanceFlag("PB");
 
   // Batter out / reached, from the primary event.
   const primaryFielderOuts =
@@ -412,7 +455,7 @@ export function parseEvent(rawInput: string): ParsedPlay {
   if (primary.code === EVENT_CD.genericOut) batterReached = !(primaryFielderOuts?.batterOut ?? false);
   else if (primary.code === EVENT_CD.strikeout) batterReached = false;
   const batterAdvance = advances.find((a) => a.from === "B");
-  if (batterAdvance) batterReached = !batterAdvance.out;
+  if (batterAdvance) batterReached = !isRetired(batterAdvance);
 
   // Outs on the play:
   //  - fielder-sequence outs from the primary out basic, OR a strikeout that
@@ -434,12 +477,15 @@ export function parseEvent(rawInput: string): ParsedPlay {
   }
   // A runner marked out ('X') whose parenthetical carries a fielding error was
   // safe on that error — don't count it as an out.
-  outsOnPlay += advances.filter((a) => a.out && !a.params.some((p) => /E/.test(p))).length;
+  outsOnPlay += advances.filter(isRetired).length;
 
   // RBI: a run counts only when driven in by the batter's action. Exclude runs
   // that score on a non-batter event (WP/PB/SB/PO/OA/BK/DI) or via an error, and
   // any run explicitly flagged no-RBI.
-  const primaryIsBatter = primary.isBatterEvent && primary.code !== EVENT_CD.noPlay;
+  // A strikeout drives nobody in: a run that scores on one ("K+WP.3-H;B-1")
+  // comes home on the wild pitch, passed ball, steal or error that went with it.
+  const primaryIsBatter =
+    primary.isBatterEvent && primary.code !== EVENT_CD.noPlay && primary.code !== EVENT_CD.strikeout;
   let rbi = 0;
   for (const a of advances) {
     if (a.to !== "H" || a.out) continue;

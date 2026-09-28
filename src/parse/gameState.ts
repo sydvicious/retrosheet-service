@@ -5,12 +5,14 @@
 // the game context that isn't in the play record itself — outs before, score
 // before, who's on each base, the current pitcher — and each runner's
 // destination. Runner advances in Retrosheet event strings are explicit; forced
-// advances (e.g. a bases-loaded walk) are inferred here.
+// advances (e.g. a bases-loaded walk) are inferred here. Runners placed on base
+// by a runner adjustment (`radj`, the extra-inning automatic runner) are put on
+// the bases before the next play.
 //
 // Base-runner ids are tracked best-effort; pinch-runner identity swaps are not
 // yet resolved by lineup slot (a known refinement, validated later against the
 // Chadwick oracle).
-import { parseEvent, type SubEvent } from "./playString.js";
+import { parseEvent, isRetired, runnersRetiredInBasic, type SubEvent } from "./playString.js";
 import type { ParsedGame } from "./eventFile.js";
 
 export interface PlayRow {
@@ -129,6 +131,12 @@ interface TimelineSub {
   fieldingPosition: number | null;
   playerId: string;
 }
+interface TimelineRunner {
+  kind: "radj";
+  seq: number;
+  playerId: string;
+  base: number; // 1-3
+}
 interface TimelinePlay {
   kind: "play";
   seq: number;
@@ -175,7 +183,12 @@ export function replayGame(game: ParsedGame): ReplayResult {
   }
 
   // Merge subs and plays into one time-ordered stream.
-  const timeline: (TimelineSub | TimelinePlay)[] = [];
+  const timeline: (TimelineSub | TimelineRunner | TimelinePlay)[] = [];
+  for (const a of game.adjustments) {
+    if (a.type !== "radj") continue;
+    const base = Number(a.field2.trim());
+    if (base >= 1 && base <= 3) timeline.push({ kind: "radj", seq: a.seq, playerId: a.field1.trim(), base });
+  }
   for (const s of game.subs) {
     timeline.push({
       kind: "sub", seq: s.seq, side: s.side,
@@ -194,8 +207,15 @@ export function replayGame(game: ParsedGame): ReplayResult {
   let curHalf = -1;
   let outs = 0;
   let playSeq = 0;
+  // Runner adjustments precede the first play of their half-inning, so they are
+  // held until that play has reset the bases.
+  let pendingRunners: TimelineRunner[] = [];
 
   for (const item of timeline) {
+    if (item.kind === "radj") {
+      pendingRunners.push(item);
+      continue;
+    }
     if (item.kind === "sub") {
       setFielder(item.side, item.fieldingPosition, item.playerId);
       continue;
@@ -210,6 +230,8 @@ export function replayGame(game: ParsedGame): ReplayResult {
       outs = 0;
       bases[1] = bases[2] = bases[3] = null;
     }
+    for (const r of pendingRunners) bases[r.base] = r.playerId;
+    pendingRunners = [];
 
     const fielding = 1 - play.half;
     const pitcherId = fielders[fielding]![1] ?? null;
@@ -225,7 +247,12 @@ export function replayGame(game: ParsedGame): ReplayResult {
 
     // Explicit advances, keyed by origin base ('B','1','2','3').
     const adv = new Map<string, { to: string; out: boolean }>();
-    for (const a of p.advances) adv.set(a.from, { to: a.to, out: a.out });
+    for (const a of p.advances) adv.set(a.from, { to: a.to, out: isRetired(a) });
+    // Runners retired inside the fielder sequence ("64(1)/FO" retires the runner
+    // from first). Without this the retired runner would be forced along.
+    for (const from of runnersRetiredInBasic(p.events)) {
+      if (!adv.has(from)) adv.set(from, { to: from, out: true });
+    }
     // Fill in advances left implicit in the running-event basic (SB/CS/PO/POCS)
     // — but never override an explicit advance for the same runner.
     for (const imp of impliedRunningAdvances(p.events)) {

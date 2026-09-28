@@ -23,4 +23,6 @@ export const SCHEMA_VERSION = 3; // v3: schema_meta.etl_version
 // The loader stamps this number into `schema_meta.etl_version` with each full
 // load; scripts/update.sh reloads when it differs from the database's, even if
 // the schema and the Retrosheet data are unchanged.
-export const ETL_VERSION = 1; // v1: first stamped version (includes the 4E1 batter-safe fix)
+export const ETL_VERSION = 2; // v2: force-out runners retired, error-negated X advances, radj runners placed, DGR with a fielder digit,
+// NDP/NTP, WP/PB flagged on an advance, no RBI on a strikeout, fielding credits
+// for K23, repeat handlers and 99(n)
