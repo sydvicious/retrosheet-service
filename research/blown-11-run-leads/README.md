@@ -92,7 +92,8 @@ Aug 21, 1990, both really 10-run leads inflated by a phantom run) and recovers
 one false negative (Sep 4, 2002, where a dropped run hid the ninth-inning tie).
 This study ran against a database loaded by ETL version 1 or earlier. The parser
 bugs behind the disagreement are fixed in ETL version 2, where the replay
-reproduces every game-log final. A future study that turns on the score *at a
+reproduces every game-log final; `warehouse` has been on version 2 since
+2026-09-28. The committed tables here have not been regenerated since. A future study that turns on the score *at a
 moment* should check `schema_meta.etl_version` and re-derive runs the same way
 on an older database — see "`play.runs_on_play` does not reproduce the final
 score" in [../README.md](../README.md).

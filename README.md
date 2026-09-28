@@ -288,12 +288,12 @@ As of 2026-09-28. Update this list when a problem is fixed or a new one is found
 
 **Deployment**
 
-- **`warehouse` still serves data loaded by ETL version 1.** In that data,
-  `play.runs_on_play` disagrees with the game-log final in 25,640 of 201,870
-  games (12.7%); `away_score_before`, `home_score_before`, and
-  `batting_daily.runs` inherit the error. The fixes are ETL version 2. Check
-  with `SELECT etl_version FROM schema_meta`; running `./scripts/update.sh` on
-  the host reloads.
+- None. `warehouse` was reloaded with ETL version 2 on 2026-09-28. Checked
+  there: `play.runs_on_play` reproduces the game-log final in all 201,870 games
+  that have a game-log row, and `batting_daily.runs` summed per side does too.
+- **Any other installation loaded by ETL version 1 or earlier** has the wrong
+  final in 12.7% of games. Check with `SELECT etl_version FROM schema_meta`;
+  `./scripts/update.sh` reloads.
 
 **Wrong results**
 

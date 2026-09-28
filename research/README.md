@@ -276,7 +276,9 @@ inherit the same error.
 
 **ETL version 2.** Those bugs are fixed. Replaying the event files reproduces the
 game-log final in all 201,870 games that have a game-log row
-(`npm run validate:scores` in the service repo).
+(`npm run validate:scores` in the service repo). `warehouse` has been on ETL
+version 2 since 2026-09-28, and the same check run there in SQL finds no
+mismatch.
 
 Either way, validate any play-level score work against `game_log` finals; the
 game logs are a separate Retrosheet download, so the check is independent of the
