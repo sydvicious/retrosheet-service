@@ -30,13 +30,20 @@ whole, so they need no bootstrapping.
     and whether reference data, postseason game logs, or the downloaded game
     logs changed; prints `full` when it cannot tell.
   - Loader: `--data-version` prints the version recorded in `schema_meta`.
-  - Tests for the path classification and the version-string parsing.
+  - Added seasons count as changed seasons: the new year each fall, and the
+    older seasons Retrosheet keeps adding. A new game-log year is downloaded
+    as soon as retrosheet.org publishes it.
+  - Tests for the path classification and the version-string parsing,
+    including an added season, a removed season, and a new file in an
+    existing season.
 - **Phase 2 — Partial reload in the loader.**
   - `--replace seasons=1987,1988 reference gamelog`: in one transaction, delete
     those seasons' rows (game and children, roster, schedule, daily lines),
     re-COPY them, re-aggregate daily lines for those games only; truncate and
     reload the reference tables and/or `game_log` when asked.
   - Record the new data version in the same transaction.
+  - A season with no rows yet (newly added) takes the same path: nothing to
+    delete, everything loaded.
   - Refuse a partial load when the database's recorded version is unknown.
   - Tests for the season predicate and the per-season daily SQL.
 - **Phase 3 — Wire it into `update.sh`.**
@@ -141,6 +148,34 @@ Within a season directory, the loader reads `.EV*`, `.ROS`, and
 extension would avoid a reload when only box scores changed; the plan does not
 do this, because a season reload is cheap and the filter would have to track
 every future file the loader learns to read. It is a one-line refinement later.
+
+## New seasons and new files
+
+Three kinds of addition arrive, and the season path handles all of them with
+no special casing because "reload season X" does not care whether X has rows:
+
+- **The new season each fall.** `seasons/2026/` appears in the clone with its
+  event, roster and schedule files. The diff lists it under a new year, the
+  classifier marks the season changed, the delete finds nothing, the load
+  inserts it.
+- **Older seasons added later.** Retrosheet keeps publishing earlier years and
+  Negro Leagues seasons. Same path; the year is simply lower.
+- **New files in an existing season.** A team's event file added to a year
+  that already has others. The season path reloads the whole season. The
+  Phase 5 file path sees a file with no old version, has no ids to delete, and
+  loads it.
+
+The game logs follow a season's appearance one step behind. `fetch-data.sh`
+downloads `gl<year>.zip` for every year under `seasons/`, so a new season
+directory makes the script try its game log on every run; retrosheet.org
+answers 404 until the file is published (2026 today), then 200, and the hash
+moves. Postseason game logs ship in the clone and come through the diff.
+
+`seasonYears()` reads the season directories at load time, so the loader needs
+no list of known seasons anywhere. The one place a fixed list could creep in is
+the classifier, which must accept any four-digit directory name, not a range.
+The tests cover an added season, a removed season, and a new file in an
+existing season.
 
 ## The game-log hash and the second half of the version
 
