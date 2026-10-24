@@ -376,6 +376,10 @@ change to `src/etl/*`:
 npm run verify:incremental -- ~/path/to/retrosheet-clone HEAD~2 HEAD
 ```
 
+**This project's own hosts.** Changes are made on a Mac dev machine, committed
+and pushed, then pulled on the staging Mac `bigsyd` to test the deployment
+before it goes to the production Linux box `warehouse`.
+
 ## Known problems
 
 As of 2026-10-24. Update this list when a problem is fixed or a new one is found.

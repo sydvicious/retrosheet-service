@@ -13,6 +13,10 @@ The repo also holds `research/`, studies run against the database.
 Runs on macOS and Linux via Docker Compose (dev on Mac; production is the Linux
 box `warehouse`). Node 24 + TypeScript throughout.
 
+Staging is the Mac `bigsyd` (Docker Desktop, not Colima). Development happens on
+the laptop; changes are committed and pushed there and pulled on `bigsyd` to
+test the deployment before it goes to `warehouse`.
+
 ## Hard constraints (do not violate)
 * **No Chadwick dependency at runtime.** Deployed installations have no Chadwick
   tools. The ETL is pure TypeScript. Chadwick binaries are used **only on a dev
