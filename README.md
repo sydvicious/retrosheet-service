@@ -340,10 +340,16 @@ limits the run. It needs no Chadwick and no database.
 
 ## Known problems
 
-As of 2026-09-28. Update this list when a problem is fixed or a new one is found.
+As of 2026-10-23. Update this list when a problem is fixed or a new one is found.
 
 **Deployment**
 
+- **Corrected game logs are never picked up.** `scripts/fetch-data.sh` downloads
+  a season's `gl<year>.txt` only when the file is missing, so a season Retrosheet
+  re-publishes keeps its old copy here, and the data version does not change.
+  Seen 2026-10-23: `gl1987.zip` on retrosheet.org is dated 2026-08-09, two days
+  after the local download. The server sends `Last-Modified` and `ETag`, so a
+  conditional download (`curl -z`) per year would fix it.
 - None. `warehouse` was reloaded with ETL version 2 on 2026-09-28. Checked
   there: `play.runs_on_play` reproduces the game-log final in all 201,870 games
   that have a game-log row, and `batting_daily.runs` summed per side does too.
