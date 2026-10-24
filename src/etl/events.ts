@@ -16,6 +16,7 @@ import { seasonYears, eventFiles } from "./paths.js";
 import { parseEventFile, type ParsedGame } from "../parse/eventFile.js";
 import { replayGame } from "../parse/gameState.js";
 import { slashDateToIso, toIntOrNull } from "../parse/dates.js";
+import { seasonPhase, leagueGroup } from "./gameClass.js";
 
 export interface EventCounts {
   game: number;
@@ -48,13 +49,15 @@ function b(v: boolean): string {
   return v ? "true" : "false";
 }
 
-// info keys promoted to typed columns on `game`, plus source_file: the event
-// file the game came from (e.g. "1935.EVR"), which is how Negro Leagues games
-// (.EVR) are told apart from the AL/NL and postseason files whatever their
-// gametype says. Every info key is ALSO stored verbatim in game_info, so
-// promotion is lossless even for unexpected formats.
+// info keys promoted to typed columns on `game`, plus three derived columns:
+// source_file, the event file the game came from (e.g. "1935.EVR"); and
+// season_phase / league_group from gameClass.ts, so queries can cut the mart by
+// regular season vs postseason and Negro Leagues vs non-Negro majors without
+// knowing Retrosheet's file conventions. Every info key is ALSO stored verbatim
+// in game_info, so promotion is lossless even for unexpected formats.
 export const GAME_COLS = [
-  "game_id", "source_file", "game_date", "game_number", "game_type", "visitor_team", "home_team",
+  "game_id", "source_file", "season_phase", "league_group",
+  "game_date", "game_number", "game_type", "visitor_team", "home_team",
   "site", "start_time", "day_night", "innings", "tiebreaker", "use_dh",
   "home_team_bats_first", "pitches", "ump_home", "ump_1b", "ump_2b", "ump_3b",
   "ump_lf", "ump_rf", "field_cond", "precip", "sky", "temp", "wind_dir",
@@ -82,14 +85,20 @@ function num(n: number | null): string | null {
   return n === null ? null : String(n);
 }
 
-/** The `game` row for a parsed game; `sourceFile` is the event file's basename. */
-export function gameRow(g: ParsedGame, sourceFile: string): (string | null)[] {
+/**
+ * The `game` row for a parsed game. `sourceFile` is the event file's basename;
+ * `teamLeagues` maps team id → LEAGUE from reference/teams.csv (readTeamLeagues).
+ */
+export function gameRow(g: ParsedGame, sourceFile: string, teamLeagues: ReadonlyMap<string, string>): (string | null)[] {
   const info = new Map<string, string>();
   for (const [k, v] of g.info) info.set(k, v); // last value wins
   const get = (k: string): string | undefined => info.get(k);
+  const home = get("hometeam")?.trim();
   return [
     g.gameId,
     sourceFile,
+    seasonPhase(get("gametype"), sourceFile),
+    leagueGroup(sourceFile, home ? teamLeagues.get(home) : undefined),
     slashDateToIso(get("date")),
     toIntOrNull(get("number")) === null ? null : String(toIntOrNull(get("number"))),
     get("gametype") ?? null,
@@ -161,6 +170,7 @@ export function gameIdsInEventFile(file: string): string[] {
 export async function loadEvents(
   client: PoolClient,
   root: string,
+  teamLeagues: ReadonlyMap<string, string>,
   seasons?: Set<string>,
   progress?: LoadProgress,
 ): Promise<EventCounts> {
@@ -172,7 +182,7 @@ export async function loadEvents(
     progress.seasonsTotal = years.length;
   }
   for (const year of years) {
-    await loadEventFiles(client, eventFiles(root, year), counts, progress);
+    await loadEventFiles(client, eventFiles(root, year), teamLeagues, counts, progress);
     if (progress) progress.seasonsDone = (progress.seasonsDone ?? 0) + 1;
   }
   return counts;
@@ -185,6 +195,7 @@ export async function loadEvents(
 export async function loadEventFiles(
   client: PoolClient,
   files: readonly string[],
+  teamLeagues: ReadonlyMap<string, string>,
   counts: EventCounts = emptyCounts(),
   progress?: LoadProgress,
 ): Promise<EventCounts> {
@@ -204,7 +215,7 @@ export async function loadEventFiles(
       const sourceFile = basename(file);
       for (const g of games) {
         if (g.gameId === "") continue;
-        gameRows.push(gameRow(g, sourceFile));
+        gameRows.push(gameRow(g, sourceFile, teamLeagues));
         const info = new Map(g.info);
         const visteam = info.get("visteam") ?? null;
         const hometeam = info.get("hometeam") ?? null;

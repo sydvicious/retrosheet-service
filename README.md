@@ -252,9 +252,13 @@ separately. Each load records them in `schema_meta`; the code's versions live in
   are unavailable during that load**; the script recreates them afterwards so
   they see the new tables.
 - **Empty database:** loaded without asking.
+- **No full load has finished at this schema** (one failed or was stopped, or
+  only a partial `SEASONS=` load ran): a full reload, after asking.
 - **Database recorded no data version** (a bare `docker compose run --rm
-  loader`, or a partial `SEASONS=` load): the data can't be compared, so a full
-  reload is offered.
+  loader`): the data can't be compared, so a full reload is offered.
+- **Another load is running** on the database: the script stops. Only one
+  load runs at a time; a second one stops at once with an error rather than
+  waiting for the first.
 
 Anything but `y` at a question stops the script with the database and the
 running services untouched. `./scripts/update.sh --force` does a full reload
@@ -264,9 +268,9 @@ needed reload stops the script with exit 1; use `--force` there.
 A code or compose-only change with no new data needs no reload check:
 `./scripts/restart.sh` (see *Start, stop, and reboots*).
 
-A load prints an elapsed-time heartbeat every few seconds (`… [123s] events
-1994: 3.9M plays loaded`), so you can tell it's alive and spot a stall
-immediately. **On a remote host, run it inside `tmux`/`screen`** so a dropped SSH
+A load prints an elapsed-time heartbeat every few seconds (`… [2:03] events
+(play-by-play): 3,912,345 plays loaded (94/123 seasons finished)`), so you can
+tell it's alive and spot a stall immediately. **On a remote host, run it inside `tmux`/`screen`** so a dropped SSH
 session can't abort the multi-minute load:
 
 ```bash
@@ -374,14 +378,15 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
 
 **Deployment**
 
-- **`warehouse` is one version behind the code.** It holds schema version 3,
-  ETL version 2 (reloaded 2026-09-28; final scores there match the game log in
-  all 201,870 games with a game-log row). The code is schema 4 / ETL 3, which
-  adds `game.source_file` and loads the 37 `.EVR` Negro Leagues event files
-  (1903–1961). The next `./scripts/update.sh` there does a full reload, with the
-  API and MCP down while the schema is rebuilt. Research predicates that only
-  test `game_type` then start matching 1,379 Negro Leagues games typed
-  `regular`; see `research/README.md`, *Regular season only*.
+- **`warehouse` may be behind the code.** The code is schema 5 / ETL 4:
+  `game.source_file` (the event file each game came from), `game.season_phase`
+  (regular / postseason / allstar / exhibition) and `game.league_group` (negro /
+  nonnegro / other), and the 37 `.EVR` Negro Leagues event files (1903–1961)
+  are loaded. Check with `SELECT version, etl_version FROM schema_meta`; an
+  older database gets a full reload from `./scripts/update.sh`, with the API
+  and MCP down while the schema is rebuilt. Research predicates that only test
+  `game_type` match 1,379 Negro Leagues games typed `regular` once the `.EVR`
+  files are in; see `research/README.md`, *Regular season only*.
 - **Any other installation loaded by ETL version 1 or earlier** has the wrong
   final in 12.7% of games. Check with `SELECT etl_version FROM schema_meta`;
   `./scripts/update.sh` reloads.
@@ -437,6 +442,14 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
   `pitching_daily.batters_faced`. Remaining work: a game-ordered harness that
   diffs base-runner destinations / pitcher / outs-before against the Chadwick
   oracle at scale, and resolving pinch-runner identity by lineup slot.
+- **Keep the services up during a reload** — a reload without a schema change
+  is one transaction, so the API and MCP serve the old rows until it commits.
+  A schema change is different: the loader drops the schema before loading, so
+  they are down for the whole load (`src/etl/run.ts`), and a load that fails or
+  is stopped leaves them on an empty schema until a reload succeeds. Load into a
+  second schema or database instead and swap it in once it has committed, then
+  restart `api`/`mcp` so PostGraphile re-introspects. A failed load then leaves
+  the old data serving. Keep that restart as short as `update.sh` can make it.
 - **Phase 5** — the web front-end.
 - **Forfeits, suspended games, and the official result** — the loader drops the
   game logs' forfeit and completion fields, so the mart stores the score when

@@ -183,6 +183,15 @@ CREATE TABLE IF NOT EXISTS game (
   -- (1903-1961). game_type is NULL for most pre-2023 regular-season games, so
   -- this is the only reliable way to separate Negro Leagues games from the rest.
   source_file          text,
+  -- Two derived classifications, filled by the loader (src/etl/gameClass.ts):
+  -- season_phase: regular | postseason | allstar | exhibition, or NULL when
+  --   neither the gametype record nor the file says (untyped games in .EVR).
+  -- league_group: negro | nonnegro | other — Negro Leagues games, games of the
+  --   AL/NL and the other leagues classed as major, or neither (the National
+  --   Association). The Negro Leagues are major leagues; "nonnegro" is the
+  --   contrast, not "major".
+  season_phase         text,
+  league_group         text,
   game_date            date,
   game_number          integer,
   game_type            text,
@@ -225,6 +234,8 @@ CREATE TABLE IF NOT EXISTS game (
 );
 CREATE INDEX IF NOT EXISTS game_game_date_idx ON game (game_date);
 CREATE INDEX IF NOT EXISTS game_source_file_idx ON game (source_file);
+CREATE INDEX IF NOT EXISTS game_season_phase_idx ON game (season_phase);
+CREATE INDEX IF NOT EXISTS game_league_group_idx ON game (league_group);
 CREATE INDEX IF NOT EXISTS game_home_team_idx ON game (home_team);
 CREATE INDEX IF NOT EXISTS game_visitor_team_idx ON game (visitor_team);
 CREATE INDEX IF NOT EXISTS game_site_idx ON game (site);

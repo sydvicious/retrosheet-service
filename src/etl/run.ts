@@ -35,10 +35,14 @@
 //                      RETROSHEET_VERSION; 10 if the schema or ETL differs
 //                      (full reload); 11 if the database has no versioned
 //                      schema; 12 if the data can't be compared; 13 if only the
-//                      data differs (partial reload possible) — checkStatus.ts
-//                      (empty, unversioned, another schema or ETL version, other
-//                      data). scripts/update.sh uses this to reload only when
+//                      data differs (partial reload possible); 14 if another
+//                      load is running — checkStatus.ts (empty, unversioned,
+//                      another schema or ETL version, other data, a load under
+//                      way). scripts/update.sh uses this to reload only when
 //                      needed.
+//
+// Only one load (full or --replace) runs at a time per schema: a second one
+// stops at once with an error instead of waiting on the first one's locks.
 //
 // A recreate is ALSO forced automatically — even in the default hot-refresh mode —
 // when the schema version stamped in the database differs from this code's
@@ -55,16 +59,18 @@
 //                      in schema_meta on a full load; compared by --check.
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { loadConfig } from "../config.js";
 import { makePool, applySchemaFile } from "../db.js";
 import { SCHEMA_VERSION, ETL_VERSION } from "./schemaVersion.js";
 import { checkStatus, type SchemaMeta } from "./checkStatus.js";
+import { formatDuration } from "./duration.js";
 import {
   parseReplaceArgs, seasonDeleteStatements, seasonGamePredicate, gameDeleteStatements,
   rosterDeleteStatement, scheduleDeleteStatement, REFERENCE_TABLES, type ReplacePlan,
 } from "./replace.js";
 import { join } from "node:path";
+import { readTeamLeagues } from "./gameClass.js";
 import {
   loadPeople, loadTeams, loadBallparks, loadCoaches, loadEjections, loadRelatives,
 } from "./reference.js";
@@ -134,10 +140,42 @@ async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolea
 // this parser/loader? Reads the schema_meta row and leaves the decision to
 // checkStatus(); prints its message and returns its exit code.
 async function checkCurrent(pool: Pool, schema: string, dataVersion: string | undefined): Promise<number> {
-  const meta = await readSchemaMeta(pool, schema);
-  const result = checkStatus(meta, dataVersion, { schemaVersion: SCHEMA_VERSION, etlVersion: ETL_VERSION });
+  const running = await loadRunning(pool, schema);
+  const meta = running ? undefined : await readSchemaMeta(pool, schema);
+  const result = checkStatus(meta, dataVersion, { schemaVersion: SCHEMA_VERSION, etlVersion: ETL_VERSION }, running);
   console.log(result.message);
   return result.exitCode;
+}
+
+// One load at a time per schema. Every load (full or --replace) holds this
+// session-level advisory lock on its own connection for the whole run, and
+// --check probes it. Postgres drops the lock with the connection, so a load
+// that is killed never leaves it behind.
+const loadLockSql = (fn: string): string => `SELECT ${fn}(hashtext($1)) AS got`;
+const loadLockName = (schema: string): string => `retrosheet-load:${schema}`;
+
+/** Take the load lock on a connection of its own; throws if another load holds it. */
+async function acquireLoadLock(pool: Pool, schema: string): Promise<PoolClient> {
+  const client = await pool.connect();
+  const { rows } = await client.query(loadLockSql("pg_try_advisory_lock"), [loadLockName(schema)]);
+  if (!rows[0]?.got) {
+    client.release();
+    throw new Error(`Another load is running on schema ${schema}. Wait for it to finish, then run this again.`);
+  }
+  return client;
+}
+
+/** Whether another load holds the load lock right now. */
+async function loadRunning(pool: Pool, schema: string): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(loadLockSql("pg_try_advisory_lock"), [loadLockName(schema)]);
+    if (!rows[0]?.got) return true;
+    await client.query(loadLockSql("pg_advisory_unlock"), [loadLockName(schema)]);
+    return false;
+  } finally {
+    client.release();
+  }
 }
 
 /** The schema_meta row, or undefined when the database has no versioned schema. */
@@ -155,12 +193,12 @@ async function readSchemaMeta(pool: Pool, schema: string): Promise<SchemaMeta | 
 // `detail` so the line reflects real work.
 function startTicker(progress: LoadProgress, started: number): NodeJS.Timeout {
   const ticker = setInterval(() => {
-    const s = ((Date.now() - started) / 1000).toFixed(0);
+    const elapsed = formatDuration(Date.now() - started);
     const seasonInfo = progress.seasonsTotal
       ? ` (${progress.seasonsDone}/${progress.seasonsTotal} seasons finished)`
       : "";
     const status = progress.detail || `${progress.plays.toLocaleString()} plays loaded${seasonInfo}`;
-    console.log(`  … [${s}s] ${progress.label}: ${status}`);
+    console.log(`  … [${elapsed}] ${progress.label}: ${status}`);
   }, 5000);
   ticker.unref();
   return ticker;
@@ -171,7 +209,7 @@ function printCounts(counts: Record<string, number>, started: number): void {
   for (const [table, n] of Object.entries(counts)) {
     console.log(`  ${table.padEnd(16)} ${n.toLocaleString()}`);
   }
-  console.log(`\nDone in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+  console.log(`\nDone in ${formatDuration(Date.now() - started)}.`);
 }
 
 // --replace: the partial load. Same transaction discipline as the full load —
@@ -186,7 +224,9 @@ async function replaceLoad(
     throw new Error("--replace needs RETROSHEET_VERSION (scripts/data-version.sh) to record what was loaded.");
   }
   const pool = makePool(cfg.databaseUrl);
+  let lock: PoolClient | undefined;
   try {
+    lock = await acquireLoadLock(pool, cfg.schema);
     // A partial load only makes sense on a database that is a full load by this
     // schema and ETL, from a known data version; anything else needs the full load.
     const meta = await readSchemaMeta(pool, cfg.schema);
@@ -217,6 +257,7 @@ async function replaceLoad(
       await client.query("BEGIN");
       await client.query(`SET search_path TO ${cfg.schema}`);
       const root = cfg.retrosheetDir;
+      const teamLeagues = readTeamLeagues(root); // for game.league_group
 
       if (plan.seasons.length) {
         const seasons = new Set(plan.seasons);
@@ -230,7 +271,7 @@ async function replaceLoad(
         counts.roster = await loadRosters(client, root, seasons);
         counts.schedule = await loadSchedules(client, root, seasons);
         progress.label = "events (play-by-play)";
-        Object.assign(counts, await loadEvents(client, root, seasons, progress));
+        Object.assign(counts, await loadEvents(client, root, teamLeagues, seasons, progress));
         progress.label = "daily stat lines";
         const where = `game_id IN (SELECT game_id FROM game WHERE ${seasonGamePredicate(plan.seasons)})`;
         Object.assign(counts, await loadDaily(client, progress, where));
@@ -255,7 +296,7 @@ async function replaceLoad(
         }
         progress.detail = "";
         progress.label = "events (changed files)";
-        Object.assign(counts, await loadEventFiles(client, files, undefined, progress));
+        Object.assign(counts, await loadEventFiles(client, files, teamLeagues, undefined, progress));
         progress.label = "daily stat lines";
         Object.assign(counts, await loadDaily(client, progress, "game_id IN (SELECT game_id FROM replaced_games)"));
       }
@@ -309,6 +350,7 @@ async function replaceLoad(
     }
     printCounts(counts, started);
   } finally {
+    lock?.release(true);
     await pool.end();
   }
 }
@@ -359,7 +401,9 @@ async function main(): Promise<void> {
   }
 
   const pool = makePool(cfg.databaseUrl);
+  let lock: PoolClient | undefined;
   try {
+    lock = await acquireLoadLock(pool, cfg.schema);
     // Force a full recreate when the code's SCHEMA_VERSION differs from what's
     // stamped in the DB, even without --recreate. This keeps a plain load (the
     // fast hot-refresh path) safe after a structural schema change: without it, the
@@ -411,7 +455,7 @@ async function main(): Promise<void> {
           ? `Loading events + play-by-play for seasons: ${[...seasons].sort().join(", ")} …`
           : `Loading events + play-by-play (${describeSeasons(root)}) …`,
       );
-      const eventCounts = await loadEvents(client, root, seasons, progress);
+      const eventCounts = await loadEvents(client, root, readTeamLeagues(root), seasons, progress);
       Object.assign(counts, eventCounts);
 
       // Game logs (manager of record + game-level summary). Not season-filtered:
@@ -450,6 +494,7 @@ async function main(): Promise<void> {
 
     printCounts(counts, started);
   } finally {
+    lock?.release(true);
     await pool.end();
   }
 }

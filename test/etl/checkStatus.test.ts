@@ -28,6 +28,27 @@ describe("checkStatus", () => {
     expect(r.message).toMatch(/ETL v1.*code is v2/);
   });
 
+  it("says no full load has finished when the schema matches but no ETL version was recorded", () => {
+    const r = checkStatus({ version: 3, etl_version: null, data_version: null }, data, code);
+    expect(r.status).toBe("changed");
+    expect(r.message).not.toMatch(/ETL v0/);
+    expect(r.message).toMatch(/schema v3/);
+    expect(r.message).toMatch(/no full load has finished/);
+  });
+
+  it("is loading when another load is running, whatever schema_meta says", () => {
+    for (const meta of [current, undefined, { version: 3, etl_version: null, data_version: null }]) {
+      const r = checkStatus(meta, data, code, true);
+      expect(r.status).toBe("loading");
+      expect(r.message).toMatch(/load is running/);
+      expect(r.message).toMatch(/wait for it to finish/i);
+    }
+  });
+
+  it("is not loading when no other load is running", () => {
+    expect(checkStatus(current, data, code, false).status).toBe("current");
+  });
+
   it("is data-changed when only the data version differs", () => {
     const r = checkStatus(current, "def456+gl:fedcba9876543210", code);
     expect(r.status).toBe("data-changed");
@@ -55,6 +76,7 @@ describe("checkStatus", () => {
     expect(checkStatus({ ...current, etl_version: 1 }, data, code).exitCode).toBe(10);
     expect(checkStatus(undefined, data, code).exitCode).toBe(11);
     expect(checkStatus(current, undefined, code).exitCode).toBe(12);
+    expect(checkStatus(current, data, code, true).exitCode).toBe(14);
   });
 
   it("gives a data-only change its own status and exit code, so a partial load can be offered", () => {

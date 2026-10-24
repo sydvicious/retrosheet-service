@@ -20,14 +20,32 @@ const EVR = [
   "play,1,0,x,00,,K",
 ].join("\n");
 
+const LEAGUES = new Map([["PTC", "NN2;NAL"], ["HOM", "NN2"], ["BAL", "AL"]]);
+const col = (row: (string | null)[], name: string): string | null => row[GAME_COLS.indexOf(name)]!;
+
 describe("gameRow", () => {
   it("records the event file the game came from, so .EVR games can be told apart", () => {
     const [g] = parseEventFile(EVR);
-    const row = gameRow(g!, "1935.EVR");
+    const row = gameRow(g!, "1935.EVR", LEAGUES);
     expect(GAME_COLS).toContain("source_file");
-    expect(row[GAME_COLS.indexOf("source_file")]).toBe("1935.EVR");
-    expect(row[GAME_COLS.indexOf("game_type")]).toBe("regular");
+    expect(col(row, "source_file")).toBe("1935.EVR");
+    expect(col(row, "game_type")).toBe("regular");
     expect(row.length).toBe(GAME_COLS.length);
+  });
+  it("derives season_phase and league_group: a Negro Leagues regular-season game", () => {
+    const [g] = parseEventFile(EVR);
+    const row = gameRow(g!, "1935.EVR", LEAGUES);
+    expect(col(row, "season_phase")).toBe("regular");
+    expect(col(row, "league_group")).toBe("negro");
+  });
+  it("derives them for an untyped AL home game: regular, nonnegro", () => {
+    const text = EVR.replace("PTC193507140", "BAL198704060").replace("info,visteam,HOM", "info,visteam,CLE")
+      .replace("info,hometeam,PTC", "info,hometeam,BAL").replace("info,gametype,regular\n", "");
+    const [g] = parseEventFile(text);
+    const row = gameRow(g!, "1987BAL.EVA", LEAGUES);
+    expect(col(row, "game_type")).toBeNull();
+    expect(col(row, "season_phase")).toBe("regular");
+    expect(col(row, "league_group")).toBe("nonnegro");
   });
 });
 

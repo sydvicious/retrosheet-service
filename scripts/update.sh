@@ -24,7 +24,8 @@
 #      upstream docs commit): the new version is just recorded. More than half
 #      the seasons changed whole: offered as a full reload instead.
 #      Anything but "y" at a question stops the script with the database and
-#      the running services untouched.
+#      the running services untouched. So does another load already running
+#      on the database (the loader allows one at a time).
 #   6. bring up db/api/mcp on the new images (recreating api/mcp after a full
 #      reload so PostGraphile re-introspects the schema)
 #
@@ -173,6 +174,10 @@ case "$rc" in
     ;;
   13)
     partial_reload
+    ;;
+  14)
+    echo "Stopped. Database and services unchanged."
+    exit 1
     ;;
   *)
     echo "Database check failed (exit $rc)." >&2

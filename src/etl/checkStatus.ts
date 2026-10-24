@@ -21,14 +21,17 @@ export interface CodeVersions {
 /**
  * current      — fully loaded at this code's versions from this data; nothing to do.
  * empty        — no versioned schema: a first load, nothing to lose.
- * changed      — the schema or the ETL differs from what loaded the database:
- *                only a full reload can fix it.
+ * changed      — the schema or the ETL differs from what loaded the database,
+ *                or no full load has finished at this schema: only a full
+ *                reload can fix it.
  * data-changed — schema and ETL match but the Retrosheet data differs: a
  *                partial reload of what changed is possible (replace.ts).
  * unknown      — nothing to compare the data against: the database recorded no
  *                data version (a bare or partial load) or none was supplied.
+ * loading      — another load holds the load lock (run.ts); schema_meta says
+ *                nothing reliable until it finishes.
  */
-export type CheckStatus = "current" | "empty" | "changed" | "data-changed" | "unknown";
+export type CheckStatus = "current" | "empty" | "changed" | "data-changed" | "unknown" | "loading";
 
 export const EXIT_CODES: Record<CheckStatus, number> = {
   current: 0,
@@ -36,6 +39,7 @@ export const EXIT_CODES: Record<CheckStatus, number> = {
   empty: 11,
   unknown: 12,
   "data-changed": 13,
+  loading: 14,
 };
 
 export interface CheckResult {
@@ -48,16 +52,27 @@ export function checkStatus(
   meta: SchemaMeta | undefined,
   dataVersion: string | undefined,
   code: CodeVersions,
+  loadRunning = false,
 ): CheckResult {
   const result = (status: CheckStatus, message: string): CheckResult =>
     ({ status, exitCode: EXIT_CODES[status], message });
 
+  if (loadRunning) {
+    return result("loading", "Another load is running on this database. Wait for it to finish, then check again.");
+  }
   if (!meta) {
     return result("empty", "Database has no versioned schema — a first load is needed.");
   }
   if (meta.version !== code.schemaVersion) {
     return result("changed",
       `Database is schema v${meta.version ?? 0}, code is v${code.schemaVersion} — a reload is needed.`);
+  }
+  // The ETL version is stamped only when a full load commits; the schema
+  // version is stamped before the load starts.
+  if (meta.etl_version == null) {
+    return result("changed",
+      `Database is schema v${code.schemaVersion}, but no full load has finished at it: one failed or was ` +
+        `stopped, or loaded only some seasons (SEASONS=). A reload is needed.`);
   }
   if (meta.etl_version !== code.etlVersion) {
     return result("changed",

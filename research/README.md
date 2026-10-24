@@ -152,22 +152,33 @@ pages produce, sorted globally rather than per club.
 
 ### Regular season only, unless a study says otherwise
 
-No All-Star games, no postseason, and (since ETL version 3) no Negro Leagues
-games unless the study includes them. The predicate is:
+No All-Star games, no postseason, no exhibitions, and no Negro Leagues games
+unless the study includes them. Since ETL version 4 the mart carries two
+derived columns on `game` for exactly these cuts, and the predicate is:
 
 ```sql
-WHERE (game_type IS NULL OR game_type = 'regular')
-  AND source_file NOT LIKE '%.EVR'
+WHERE season_phase = 'regular' AND league_group = 'nonnegro'
 ```
 
-The second line is new with ETL version 3, which loads Retrosheet's `.EVR`
-event files: Negro Leagues games from 1903 to 1961, 1,379 of them typed
-`regular`, which the first line alone would count as AL/NL regular-season games.
-`game.source_file` names the event file each game came from (`1935BOS.EVA`,
-`1935WS.EVE`, `1935.EVR`), so the suffix is the reliable test. The studies
-written before this use the one-line predicate and have not been re-run against
-ETL version 3; any whose window overlaps 1903–1961 (the ties-by-decade figures
-above do) needs the second line before its numbers are trusted again.
+`season_phase` is `regular`, `postseason`, `allstar` or `exhibition`, derived
+from Retrosheet's `gametype` record where there is one and from the event file
+otherwise (an AL/NL team's home-game file is regular season; `WS`, `ALCS`,
+`NLD1`, … files are postseason). It is NULL for the few games where neither
+says, all of them untyped games in the Negro Leagues files, so `= 'regular'`
+drops them rather than guessing. Pennant tiebreakers (`gametype playoff`) count
+as regular, as the official record does.
+
+`league_group` is `negro` for every game in a `.EVR` file (and any game a Negro
+league team hosts), `other` for the National Association, and `nonnegro` for
+the AL, NL and the other leagues classed as major. The Negro Leagues are major
+leagues; `nonnegro` is the contrast, not "major".
+
+Before ETL version 4 the predicate was `game_type IS NULL OR game_type =
+'regular'`. That still works for the AL/NL files alone but, since ETL version 3
+loads the `.EVR` files, it also matches 1,379 Negro Leagues games typed
+`regular`. The studies written before this use the old predicate and have not
+been re-run; any whose window overlaps 1903–1961 (the ties-by-decade figures
+above do) needs the new one before its numbers are trusted again.
 
 **Why it matters more than it looks.** Postseason usage is not a scaled-down
 version of regular-season usage — it is systematically different, and different
@@ -190,9 +201,9 @@ postseason, so no Ryan-specific 1987 number moved.
 
 Most studies cover **AA / NL / AL only** — but not all, so do not bake the
 assumption into shared helpers. State the scope in each study's README and make
-it visible in the query. The Negro Leagues games (`source_file LIKE '%.EVR'`)
-are in the mart to be studied; a study that includes them says so and drops the
-`source_file` line from the predicate above.
+it visible in the query. The Negro Leagues games (`league_group = 'negro'`) are
+in the mart to be studied; a study that includes them says so and changes or
+drops the `league_group` test in the predicate above.
 
 ### Which database
 
