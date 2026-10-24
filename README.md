@@ -6,7 +6,7 @@ data, run the loader to build a queryable Postgres mart, and query it over
 GraphQL (PostGraphile) with filtering, ordering, pagination, and relations out
 of the box.
 
-Runs identically on macOS and Linux via Docker Compose. Node 22 + TypeScript.
+Runs identically on macOS and Linux via Docker Compose. Node 24 + TypeScript.
 
 ## Status
 
@@ -92,7 +92,7 @@ GUI-free route is **[Colima](https://github.com/abiosoft/colima)**:
 | `docker-compose` | the Compose v2 plugin (`docker compose …`) |
 
 Dev machine only (for the native workflow and parser validation), additionally:
-`node` (Node 22), and `chadwick` — used **only** as a black-box oracle to
+`node` (Node 24), and `chadwick` — used **only** as a black-box oracle to
 generate golden fixtures (`scripts/make-fixtures.sh`); never a runtime dependency.
 
 ```bash

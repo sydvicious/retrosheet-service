@@ -11,7 +11,7 @@ backed by PostgreSQL. Three pieces:
 The repo also holds `research/`, studies run against the database.
 
 Runs on macOS and Linux via Docker Compose (dev on Mac; production is the Linux
-box `warehouse`). Node 22 + TypeScript throughout.
+box `warehouse`). Node 24 + TypeScript throughout.
 
 ## Hard constraints (do not violate)
 * **No Chadwick dependency at runtime.** Deployed installations have no Chadwick
