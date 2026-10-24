@@ -166,6 +166,45 @@ Endpoints (replace `localhost` with the host name, e.g. `warehouse`):
   the AirPlay Receiver in Control Center listens on 5000)
 - **MCP** (streamable HTTP) — http://localhost:5051/mcp
 
+## Start, stop, and reboots
+
+The data lives in the `pgdata` Docker volume, which outlives the containers.
+Starting the services never reloads it; the loader is behind the `etl` profile
+and runs only when asked (`docker compose run --rm loader`, or `update.sh` when
+the database is out of date). So after a stop, a `docker compose down`, or a new
+checkout with no schema change, this is all it takes:
+
+```bash
+docker compose up -d db api mcp
+```
+
+The one command that does throw the data away is `docker compose down -v`,
+which removes the volume.
+
+**Reboots.** `db`, `api`, and `mcp` have `restart: unless-stopped`, and
+`setup-linux.sh` enables the Docker daemon at boot, so a Linux host brings the
+containers back on its own after a reboot, as long as they were running when it
+went down. A container you stopped by hand stays stopped. If `api` or `mcp`
+comes up before Postgres is ready it exits and Docker retries it.
+
+To manage the stack with `systemctl` instead, install the unit in
+`deploy/retrosheet.service`. It runs `docker compose up -d db api mcp` at boot
+and `docker compose down` at shutdown, and never touches the loader. From the
+repo directory on the host:
+
+```bash
+sudo cp deploy/retrosheet.service /etc/systemd/system/
+sudo sed -i "s|^WorkingDirectory=.*|WorkingDirectory=$PWD|" /etc/systemd/system/retrosheet.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now retrosheet
+```
+
+Then `systemctl status retrosheet`, `sudo systemctl stop retrosheet`, and
+`sudo systemctl start retrosheet`. The unit and the restart policy coexist: at
+boot Docker restarts the containers first and the unit's `up -d` finds nothing
+to do. `update.sh` still works as before; it recreates containers through
+Compose, which is what the unit manages.
+
 ## Update an existing installation
 
 First check out the code you want. `update.sh` does **not** touch the service
