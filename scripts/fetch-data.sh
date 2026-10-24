@@ -30,23 +30,17 @@ echo "Retrosheet data ready in $DATA_DIR"
 
 # Regular-season game logs (per-game manager of record + game summary). These are
 # a separate Retrosheet download, not in the repo; fetch one per season year we
-# have, into gamelog/ (alongside the postseason GL*.TXT). Incremental — existing
-# years are skipped, so only new years are downloaded on later runs.
+# have, into gamelog/ (alongside the postseason GL*.TXT). Every year is asked
+# for on every run, conditionally: a year we already have is downloaded only if
+# retrosheet.org has a newer file (If-Modified-Since against the unzipped
+# file's mtime, which is set to the zip's server date), so a corrected season
+# is picked up and an unchanged one costs one small request. A year the server
+# doesn't have yet (404, e.g. the season just played) is skipped until it does.
 if [ -d "$DATA_DIR/seasons" ]; then
   GLDIR="$DATA_DIR/gamelog"
   mkdir -p "$GLDIR"
-  # First pass: which season years still need a game-log file? Count them so the
-  # download can show "[i/total]" progress — a silent multi-minute fetch (155
-  # files on a first run) reads as a hang otherwise.
-  missing=""
-  total=0
-  for y in $(ls "$DATA_DIR/seasons" | grep -E '^[0-9]{4}$' | sort); do
-    if ls "$GLDIR"/gl"${y}".txt >/dev/null 2>&1; then
-      continue
-    fi
-    missing="$missing $y"
-    total=$((total + 1))
-  done
+  years="$(ls "$DATA_DIR/seasons" | grep -E '^[0-9]{4}$' | sort)"
+  total="$(echo "$years" | grep -c .)"
   if [ "$total" -gt 0 ]; then
     # Fail loudly: without these the game logs (and managers of record) would
     # silently go missing from the load.
@@ -56,24 +50,45 @@ if [ -d "$DATA_DIR/seasons" ]; then
         exit 1
       fi
     done
-    echo "Fetching $total game-log year(s) from retrosheet.org into $GLDIR …"
+    echo "Checking $total game-log year(s) against retrosheet.org ($GLDIR) …"
     fetched=0
+    missing=0
     i=0
-    for y in $missing; do
+    for y in $years; do
       i=$((i + 1))
-      if curl -fsSL "https://www.retrosheet.org/gamelogs/gl${y}.zip" -o "$GLDIR/gl${y}.zip" 2>/dev/null; then
-        unzip -oq "$GLDIR/gl${y}.zip" -d "$GLDIR"
-        rm -f "$GLDIR/gl${y}.zip"
-        if [ ! -f "$GLDIR/gl${y}.txt" ]; then
-          echo "gl${y}.zip did not contain gl${y}.txt — check $GLDIR." >&2
-          exit 1
-        fi
-        fetched=$((fetched + 1))
-        echo "  … [$i/$total] gl${y}"
+      txt="$GLDIR/gl${y}.txt"
+      zip="$GLDIR/gl${y}.zip"
+      url="https://www.retrosheet.org/gamelogs/gl${y}.zip"
+      # -z: only download when newer than this file (no-op when it doesn't exist).
+      # -R: give the zip the server's Last-Modified time, copied to the txt below.
+      if [ -f "$txt" ]; then
+        rc=0; curl -fsSL -R -z "$txt" "$url" -o "$zip" 2>/dev/null || rc=$?
       else
-        echo "  … [$i/$total] gl${y} — not available, skipped"
+        rc=0; curl -fsSL -R "$url" -o "$zip" 2>/dev/null || rc=$?
       fi
+      if [ "$rc" -ne 0 ]; then
+        rm -f "$zip"
+        if [ -f "$txt" ]; then
+          echo "  … [$i/$total] gl${y} — not reachable, keeping the current file"
+        else
+          missing=$((missing + 1))
+          echo "  … [$i/$total] gl${y} — not available, skipped"
+        fi
+        continue
+      fi
+      if [ ! -f "$zip" ]; then
+        continue   # 304 Not Modified: curl wrote nothing
+      fi
+      unzip -oq "$zip" -d "$GLDIR"
+      if [ ! -f "$txt" ]; then
+        echo "gl${y}.zip did not contain gl${y}.txt — check $GLDIR." >&2
+        exit 1
+      fi
+      touch -r "$zip" "$txt"
+      rm -f "$zip"
+      fetched=$((fetched + 1))
+      echo "  … [$i/$total] gl${y}"
     done
-    echo "Fetched $fetched of $total game-log year(s) into $GLDIR"
+    echo "Game logs: $fetched new or updated, $missing not yet published, $((total - fetched - missing)) unchanged."
   fi
 fi

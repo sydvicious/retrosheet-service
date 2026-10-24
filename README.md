@@ -221,30 +221,40 @@ git pull   # or check out the desired revision — you manage the service repo's
 ```
 
 It refreshes the Retrosheet data, rebuilds the images, and brings up `db`,
-`api`, and `mcp` on them. It **reloads the database only when it has to**: when
-the code's schema version differs from the database's, when the code's ETL
-version (the parser/loader logic that turns Retrosheet files into rows) differs
-from the one that did the last load, or when the Retrosheet data differs from
-what was loaded. The data's version is the clone's commit plus a hash of the
-game logs `fetch-data.sh` downloads separately; each full load records it in
-`schema_meta.data_version` and the ETL version in `schema_meta.etl_version`.
-Both versions live in `src/etl/schemaVersion.ts`.
+`api`, and `mcp` on them. It **reloads only what it has to**. The check compares
+three things with what the database recorded at its last load: the code's
+schema version, the code's ETL version (the parser/loader logic that turns
+Retrosheet files into rows), and the Retrosheet data's version, which is the
+clone's commit plus a hash of the game logs `fetch-data.sh` downloads
+separately. Each load records them in `schema_meta`; the code's versions live in
+`src/etl/schemaVersion.ts`.
 
-- **Data or ETL changed, schema didn't:** the reload runs in one transaction. The
-  services keep serving the old data until it commits, then the new data.
-- **Schema changed:** the loader drops and rebuilds the schema first, so **the
-  API and MCP are unavailable during the load**. The script recreates them
-  afterwards so they see the new tables.
-- **Neither changed:** no load; the services are just brought up on the new
+- **Nothing changed:** no load; the services are just brought up on the new
   images.
+- **Only the data changed:** the script works out which seasons, whether the
+  reference data, and whether the game logs changed (`scripts/data-changes.sh`,
+  a `git diff` between the loaded and the current clone commit plus the
+  game-log hash), prints that, and asks. `y` reloads just those: the seasons'
+  rows are deleted and reloaded and their daily lines re-aggregated, the
+  reference tables and `game_log` are reloaded whole when they changed. One
+  transaction; the services keep serving the old rows until it commits. A
+  season takes seconds. If nothing the loader reads changed (an upstream docs
+  commit), the new version is recorded with no rows touched and no question.
+  If more than half the seasons changed, a full reload is offered instead.
+- **Schema or ETL changed:** a full reload, after asking. An ETL change means
+  the rows themselves are computed differently, so everything is rebuilt. A
+  schema change also drops and rebuilds the schema first, so **the API and MCP
+  are unavailable during that load**; the script recreates them afterwards so
+  they see the new tables.
+- **Empty database:** loaded without asking.
+- **Database recorded no data version** (a bare `docker compose run --rm
+  loader`, or a partial `SEASONS=` load): the data can't be compared, so a full
+  reload is offered.
 
-An empty database is loaded without asking. When one of the three has changed,
-the script prints which and asks `Reload the database? [y/N]`; when the database
-recorded no data version (a bare or partial load) it says the data can't be
-compared and asks the same. Anything but `y` stops it with the database and the
-running services untouched. `./scripts/update.sh --force` reloads without
-checking or asking. Without a terminal on stdin (a cron job, a pipe) a needed
-reload stops the script with exit 1; use `--force` there.
+Anything but `y` at a question stops the script with the database and the
+running services untouched. `./scripts/update.sh --force` does a full reload
+without checking or asking. Without a terminal on stdin (a cron job, a pipe) a
+needed reload stops the script with exit 1; use `--force` there.
 
 A code or compose-only change with no new data needs no reload check:
 `./scripts/restart.sh` (see *Start, stop, and reboots*).
@@ -326,6 +336,7 @@ npm run validate:plays    # dev-only: play-parser parity vs Chadwick goldens
 npm run validate:fielding # dev-only: fielding-credit parity vs Chadwick goldens
 npm run audit:plays       # dev-only: log plays the parser doesn't fully understand
 npm run validate:scores   # dev-only: replayed final scores vs the Retrosheet game logs
+npm run verify:incremental <clone> <A> <B>  # dev-only: partial reload vs full load (see below)
 ```
 
 `audit:plays` replays the real event files (`RETROSHEET_DIR=…`) and reports plays
@@ -338,18 +349,26 @@ runs scored by each side, and compares them with the final score in the
 Retrosheet game logs. It exits non-zero when any game disagrees. `SEASONS=2024,1975`
 limits the run. It needs no Chadwick and no database.
 
+`verify:incremental` proves the partial reload that `update.sh` uses: it
+extracts two upstream commits A and B from a Retrosheet clone *with history*
+(`git archive`, so the clone is never touched), fully loads A into a separate
+database (`retrosheet_verify`), applies the A→B change set with the loader's
+`--replace`, snapshots every table per season (row count and an MD5 over the
+rows minus their identity columns), then fully loads B and snapshots again. Zero
+differences is the pass. It needs Docker's `db` up, the built `dist`, and the
+downloaded game logs; two full loads take about half an hour. Run it after a
+change to `src/etl/*`:
+
+```bash
+npm run verify:incremental -- ~/path/to/retrosheet-clone HEAD~2 HEAD
+```
+
 ## Known problems
 
 As of 2026-10-23. Update this list when a problem is fixed or a new one is found.
 
 **Deployment**
 
-- **Corrected game logs are never picked up.** `scripts/fetch-data.sh` downloads
-  a season's `gl<year>.txt` only when the file is missing, so a season Retrosheet
-  re-publishes keeps its old copy here, and the data version does not change.
-  Seen 2026-10-23: `gl1987.zip` on retrosheet.org is dated 2026-08-09, two days
-  after the local download. The server sends `Last-Modified` and `ETag`, so a
-  conditional download (`curl -z`) per year would fix it.
 - None. `warehouse` was reloaded with ETL version 2 on 2026-09-28. Checked
   there: `play.runs_on_play` reproduces the game-log final in all 201,870 games
   that have a game-log row, and `batting_daily.runs` summed per side does too.
@@ -420,12 +439,6 @@ As of 2026-10-23. Update this list when a problem is fixed or a new one is found
 - **Split research into its own repository** — the studies only consume the
   mart. Three studies exist now; `research/README.md` is written to become the
   root README of that repository.
-- **Reload only the seasons that changed** — investigate. Any data change now
-  reloads every season (several minutes). `git diff --name-only` between the recorded
-  `schema_meta.data_version` commit and the new one maps changed
-  `seasons/<year>/` paths to seasons; per-game tables could be replaced a season
-  at a time, while the small reference tables just reload. Open questions: the
-  `--depth 1` clone may lack the old commit, and game logs aren't in the clone.
 
 ## Retrosheet terms of use
 

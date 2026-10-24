@@ -24,6 +24,7 @@
     "audit:plays": "tsx src/tools/audit-plays.ts",
     "validate:fielding": "tsx src/tools/validate-fielding.ts",
     "validate:scores": "tsx src/tools/validate-scores.ts",
+    "verify:incremental": "bash scripts/verify-incremental.sh",
     "research:ryan1987": "tsx research/ryan1987/run.ts",
     "lint": "eslint ."
   },

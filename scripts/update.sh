@@ -11,18 +11,23 @@
 #      this code, loaded by the same ETL version (parser/loader logic), AND loaded
 #      from the same data (the clone's commit plus a hash of the game logs
 #      fetch-data.sh downloads, which aren't in the clone)
-#   4. an empty database is loaded without asking. If the schema, the ETL, or
-#      the data has changed, say which and ask before reloading; likewise when
-#      the database recorded no data version and the data can't be compared.
-#      Anything but "y" stops the script with the database and the running
-#      services untouched. (A schema change drops and rebuilds the schema first,
-#      so the API/MCP are unavailable during that load; a data-only change
-#      reloads in one transaction and they keep serving the old data.)
-#   5. bring up db/api/mcp on the new images (recreating api/mcp after a reload
-#      so PostGraphile re-introspects the schema)
+#   4. an empty database is loaded without asking. A schema or ETL change, or a
+#      database that recorded no data version, needs a full reload: say why and
+#      ask. (A schema change drops and rebuilds the schema first, so the API/MCP
+#      are unavailable during that load; otherwise the reload is one transaction
+#      and they keep serving the old data.)
+#   5. a data-only change is narrowed with scripts/data-changes.sh to the
+#      seasons, reference data, and game logs that changed, and only those are
+#      reloaded (the loader's --replace) after asking. Nothing relevant changed
+#      (an upstream docs commit): the new version is just recorded. More than
+#      half the seasons changed: offered as a full reload instead.
+#      Anything but "y" at a question stops the script with the database and
+#      the running services untouched.
+#   6. bring up db/api/mcp on the new images (recreating api/mcp after a full
+#      reload so PostGraphile re-introspects the schema)
 #
 # Usage: scripts/update.sh [--force]
-#   --force   reload without checking or asking
+#   --force   full reload without checking or asking
 #
 # Without a terminal on stdin the question can't be asked, so a needed reload
 # stops the script; use --force there.
@@ -71,6 +76,69 @@ reload() {
   echo "Updated and reloaded."
 }
 
+# Ask a y/N question; anything else stops the script. Without a terminal the
+# question can't be asked, so stop and point at --force.
+confirm() {
+  if [ ! -t 0 ]; then
+    echo "A reload is needed. Re-run with --force to reload." >&2
+    exit 1
+  fi
+  read -r -p "$1 [y/N] " answer
+  case "$answer" in
+    y|Y|yes|YES) ;;
+    *) echo "Stopped. Database and services unchanged."; exit 0 ;;
+  esac
+}
+
+# A data-only change: narrow it to what changed and reload just that.
+partial_reload() {
+  echo "==> Working out what changed …"
+  old_version="$(docker compose run --rm -T loader node dist/etl/run.js --data-version | tail -1)"
+  changes="$(./scripts/data-changes.sh "$old_version" "$RETROSHEET_VERSION")"
+  seasons=""; reference=0; gamelog=0; describe=""
+  while IFS='=' read -r key value; do
+    case "$key" in
+      seasons) seasons="$value" ;;
+      reference) reference="$value" ;;
+      gamelog) gamelog="$value" ;;
+      describe) describe="$value" ;;
+      full) describe="everything (full reload)"; seasons="FULL" ;;
+    esac
+  done <<<"$changes"
+
+  if [ "$seasons" = "FULL" ]; then
+    confirm "The change set is unknown. Reload the whole database?"
+    reload
+    return
+  fi
+
+  changed=0
+  if [ -n "$seasons" ]; then changed="$(echo "$seasons" | tr ',' '\n' | grep -c .)"; fi
+  total="$(ls "$RETROSHEET_DIR/seasons" 2>/dev/null | grep -Ec '^[0-9]{4}$' || true)"
+  if [ "$total" -gt 0 ] && [ $((changed * 2)) -gt "$total" ]; then
+    confirm "$changed of $total seasons changed. Reload the whole database?"
+    reload
+    return
+  fi
+
+  if [ "$describe" = "nothing" ]; then
+    echo "==> No loaded data changed; recording data version $RETROSHEET_VERSION …"
+    docker compose run --rm loader node dist/etl/run.js --replace seasons= reference=0 gamelog=0
+    echo "==> Bringing up the services …"
+    docker compose up -d db api mcp
+    echo "Updated. Database rows unchanged."
+    return
+  fi
+
+  echo "Changed: $describe."
+  confirm "Reload those?"
+  echo "==> Reloading $describe …"
+  docker compose run --rm loader node dist/etl/run.js --replace "seasons=$seasons" "reference=$reference" "gamelog=$gamelog"
+  echo "==> Bringing up the services …"
+  docker compose up -d db api mcp
+  echo "Updated; reloaded $describe."
+}
+
 if [ "$FORCE" -eq 1 ]; then
   reload
   exit 0
@@ -92,25 +160,16 @@ case "$rc" in
     echo "==> Loading the empty database …"
     reload
     ;;
-  10|12)
-    if [ ! -t 0 ]; then
-      echo "A reload is needed. Re-run with --force to reload." >&2
-      exit 1
-    fi
-    if [ "$rc" -eq 10 ]; then
-      read -r -p "Reload the database? [y/N] " answer
-    else
-      read -r -p "The data can't be compared. Reload the database anyway? [y/N] " answer
-    fi
-    case "$answer" in
-      y|Y|yes|YES)
-        reload
-        ;;
-      *)
-        echo "Stopped. Database and services unchanged."
-        exit 0
-        ;;
-    esac
+  10)
+    confirm "Reload the database?"
+    reload
+    ;;
+  12)
+    confirm "The data can't be compared. Reload the database anyway?"
+    reload
+    ;;
+  13)
+    partial_reload
     ;;
   *)
     echo "Database check failed (exit $rc)." >&2

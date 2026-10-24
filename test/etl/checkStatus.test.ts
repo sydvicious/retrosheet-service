@@ -28,9 +28,9 @@ describe("checkStatus", () => {
     expect(r.message).toMatch(/ETL v1.*code is v2/);
   });
 
-  it("is changed when the data version differs", () => {
+  it("is data-changed when only the data version differs", () => {
     const r = checkStatus(current, "def456+gl:fedcba9876543210", code);
-    expect(r.status).toBe("changed");
+    expect(r.status).toBe("data-changed");
     expect(r.message).toContain(data);
     expect(r.message).toContain("def456+gl:fedcba9876543210");
   });
@@ -52,7 +52,18 @@ describe("checkStatus", () => {
   it("maps each status to its exit code", () => {
     expect(checkStatus(current, data, code).exitCode).toBe(0);
     expect(checkStatus({ ...current, version: 2 }, data, code).exitCode).toBe(10);
+    expect(checkStatus({ ...current, etl_version: 1 }, data, code).exitCode).toBe(10);
     expect(checkStatus(undefined, data, code).exitCode).toBe(11);
     expect(checkStatus(current, undefined, code).exitCode).toBe(12);
+  });
+
+  it("gives a data-only change its own status and exit code, so a partial load can be offered", () => {
+    const r = checkStatus(current, "def456+gl:fedcba9876543210", code);
+    expect(r.status).toBe("data-changed");
+    expect(r.exitCode).toBe(13);
+  });
+
+  it("keeps schema and ETL differences as changed, even when the data also differs", () => {
+    expect(checkStatus({ ...current, etl_version: 1 }, "def456+gl:fedcba9876543210", code).status).toBe("changed");
   });
 });

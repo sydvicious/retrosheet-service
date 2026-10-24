@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Per-season loaders for the already-CSV data: rosters (*.ROS) and schedules
-// (<year>schedule.csv). Rows are streamed across all seasons into a single COPY
-// per table.
+// (<year>schedule.csv). Rows are streamed across all seasons — or only the
+// given ones, for a partial load — into a single COPY per table.
 import type { PoolClient } from "pg";
 import { copyRows } from "../db.js";
 import { readRows, cell } from "./csv.js";
@@ -11,8 +11,9 @@ import { seasonYears, rosterFiles, scheduleFile } from "./paths.js";
 import { parseRosterRow } from "../parse/roster.js";
 import { compactDateToIso, toIntOrNull } from "../parse/dates.js";
 
-function* rosterRowStream(root: string): Generator<(string | null)[]> {
+function* rosterRowStream(root: string, seasons?: Set<string>): Generator<(string | null)[]> {
   for (const year of seasonYears(root)) {
+    if (seasons && !seasons.has(year)) continue;
     for (const file of rosterFiles(root, year)) {
       for (const raw of readRows(file)) {
         const e = parseRosterRow(raw);
@@ -26,17 +27,18 @@ function* rosterRowStream(root: string): Generator<(string | null)[]> {
   }
 }
 
-export async function loadRosters(client: PoolClient, root: string): Promise<number> {
+export async function loadRosters(client: PoolClient, root: string, seasons?: Set<string>): Promise<number> {
   return copyRows(
     client,
     "roster",
     ["year", "team", "player_id", "last_name", "first_name", "bats", "throws", "position"],
-    rosterRowStream(root),
+    rosterRowStream(root, seasons),
   );
 }
 
-function* scheduleRowStream(root: string): Generator<(string | null)[]> {
+function* scheduleRowStream(root: string, seasons?: Set<string>): Generator<(string | null)[]> {
   for (const year of seasonYears(root)) {
+    if (seasons && !seasons.has(year)) continue;
     const file = scheduleFile(root, year);
     if (!file) continue;
     for (const raw of readRows(file)) {
@@ -61,7 +63,7 @@ function* scheduleRowStream(root: string): Generator<(string | null)[]> {
   }
 }
 
-export async function loadSchedules(client: PoolClient, root: string): Promise<number> {
+export async function loadSchedules(client: PoolClient, root: string, seasons?: Set<string>): Promise<number> {
   return copyRows(
     client,
     "schedule",
@@ -70,6 +72,6 @@ export async function loadSchedules(client: PoolClient, root: string): Promise<n
       "visitor_game_number", "home_team", "home_league", "home_game_number",
       "day_night", "site", "postponed", "makeup",
     ],
-    scheduleRowStream(root),
+    scheduleRowStream(root, seasons),
   );
 }

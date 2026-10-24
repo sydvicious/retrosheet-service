@@ -58,6 +58,12 @@ machine and feed the dev-only validation tools, not the test suite:
 `validate:scores` and `audit:plays` need the Retrosheet data but no Chadwick.
 Run all four tools after a change to `src/parse/*`.
 
+* `npm run verify:incremental <clone-with-history> <commit A> <commit B>`
+  proves the partial reload (`--replace`) against a full load of the same
+  commit, in a separate database. Needs Docker's `db` up, the built `dist`,
+  and a Retrosheet clone with history (Syd keeps a full one outside the repo).
+  Run it after a change to `src/etl/*`. About half an hour.
+
 ## Documentation
 Keep the documentation accurate. When a figure or statement turns out to be
 stale, correct it in the same change. README's **Known problems** section lists

@@ -6,6 +6,11 @@
 // in SQL. No new parsing — these tables are recomputed on every load, after the
 // play table is filled, inside the same transaction as everything else.
 //
+// A full load aggregates the whole play table. A partial load (--replace, see
+// replace.ts) passes a predicate on play.game_id so only the reloaded games'
+// lines are rebuilt; the SQL is built by battingSql()/pitchingSql() so the
+// predicate reaches every pass over play.
+//
 // Scope: batting and pitching. Fielding lines (fielding_daily) are not built
 // here: they need the parsed fielder sequence, which the play table does not
 // persist, so the game replay derives them and events.ts loads them.
@@ -34,7 +39,14 @@ export interface DailyCounts {
 const PA_FILTER =
   "(event_code IN (2,3,14,15,16,17,18,19) OR hit_value > 0)";
 
-const BATTING_SQL = `
+/** WHERE clause tail for a pass over play: "" or " WHERE <pred>" / " AND <pred>". */
+function playWhere(where: string | undefined, prefix: "WHERE" | "AND"): string {
+  return where ? ` ${prefix} ${where}` : "";
+}
+
+/** The batting_daily INSERT. `where` is a predicate on play.game_id, or absent for every game. */
+export function battingSql(where?: string): string {
+  return `
 INSERT INTO batting_daily (
   game_id, player_id, team, game_date, side,
   plate_appearances, at_bats, runs, hits, doubles, triples, home_runs, rbi,
@@ -66,7 +78,7 @@ batter AS (
     count(*) FILTER (WHERE double_play)             AS gidp,
     COALESCE(sum(hit_value), 0)                     AS tb,
     count(*) FILTER (WHERE batter_dest = 4)         AS batter_runs
-  FROM play
+  FROM play${playWhere(where, "WHERE")}
   GROUP BY game_id, batter_id, half
 ),
 -- Pass 2 — runner role. Unpivot each play's three baserunners once (a LATERAL
@@ -86,7 +98,7 @@ runner AS (
       (p.base2_before, p.run2_dest, p.event ~ 'SB3', p.event ~ 'CS3(?!\\([^)]*E)'),
       (p.base3_before, p.run3_dest, p.event ~ 'SBH', p.event ~ 'CSH(?!\\([^)]*E)')
     ) AS u(player_id, dest, is_sb, is_cs)
-    WHERE u.player_id IS NOT NULL
+    WHERE u.player_id IS NOT NULL${playWhere(where ? where.replace(/\bgame_id\b/, "p.game_id") : undefined, "AND")}
   ) s
   GROUP BY game_id, player_id, side
 )
@@ -105,8 +117,11 @@ FROM batter b
 FULL OUTER JOIN runner r ON r.game_id = b.game_id AND r.player_id = b.player_id
 JOIN game g ON g.game_id = COALESCE(b.game_id, r.game_id)
 `;
+}
 
-const PITCHING_SQL = `
+/** The pitching_daily INSERT. `where` as for battingSql(). */
+export function pitchingSql(where?: string): string {
+  return `
 INSERT INTO pitching_daily (
   game_id, player_id, team, game_date, side, games_started,
   outs, batters_faced, hits, home_runs, runs, earned_runs,
@@ -128,7 +143,7 @@ pitch AS (
     count(*) FILTER (WHERE wild_pitch)              AS wp,
     count(*) FILTER (WHERE event_code = 11)         AS bk
   FROM play
-  WHERE pitcher_id IS NOT NULL
+  WHERE pitcher_id IS NOT NULL${playWhere(where, "AND")}
   GROUP BY game_id, pitcher_id, half
 ),
 er AS (
@@ -153,13 +168,17 @@ JOIN game g ON g.game_id = pt.game_id
 LEFT JOIN er ON er.game_id = pt.game_id AND er.player_id = pt.player_id
 LEFT JOIN gs ON gs.game_id = pt.game_id AND gs.player_id = pt.player_id
 `;
+}
 
-/** Populate batting_daily and pitching_daily from the loaded play table. */
-export async function loadDaily(client: PoolClient, progress?: LoadProgress): Promise<DailyCounts> {
+/**
+ * Populate batting_daily and pitching_daily from the loaded play table — all of
+ * it, or only the games matching `where` (a predicate on play.game_id).
+ */
+export async function loadDaily(client: PoolClient, progress?: LoadProgress, where?: string): Promise<DailyCounts> {
   if (progress) progress.detail = "aggregating batting_daily …";
-  const bat = await client.query(BATTING_SQL);
+  const bat = await client.query(battingSql(where));
   if (progress) progress.detail = "aggregating pitching_daily …";
-  const pit = await client.query(PITCHING_SQL);
+  const pit = await client.query(pitchingSql(where));
   return {
     batting_daily: bat.rowCount ?? 0,
     pitching_daily: pit.rowCount ?? 0,

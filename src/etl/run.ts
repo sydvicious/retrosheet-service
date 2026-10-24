@@ -9,14 +9,27 @@
 //                      + reload every table inside ONE transaction. Readers see
 //                      old data until commit, then new data — the running API
 //                      keeps serving and needs no restart.
+//   --replace seasons=1987,2019 reference=0 gamelog=1
+//                      Partial reload (Phase 2 of "Incremental updates.md"):
+//                      in ONE transaction, delete the listed seasons' rows and
+//                      reload them, re-aggregate their daily lines, and reload
+//                      the reference tables and/or game_log whole when asked.
+//                      Takes the key=value lines scripts/data-changes.sh prints.
+//                      Refused unless the database is a full load by this
+//                      schema and ETL version with a recorded data version.
+//                      Needs RETROSHEET_VERSION (the new data's version).
 //   --recreate         Drop and recreate the schema first (use when the table
 //                      DEFINITIONS in sql/schema.sql changed; the API must be
 //                      restarted afterward to expose structural changes).
+//   --data-version     Load nothing. Print the Retrosheet data version the
+//                      database was loaded from (schema_meta.data_version), or
+//                      an empty line if none is recorded.
 //   --check            Load nothing. Exit 0 if the database is fully loaded at
 //                      this code's SCHEMA_VERSION and ETL_VERSION from
-//                      RETROSHEET_VERSION; 10 if the schema, ETL, or data
-//                      differs; 11 if the database has no versioned schema; 12
-//                      if the data can't be compared (see checkStatus.ts)
+//                      RETROSHEET_VERSION; 10 if the schema or ETL differs
+//                      (full reload); 11 if the database has no versioned
+//                      schema; 12 if the data can't be compared; 13 if only the
+//                      data differs (partial reload possible) — checkStatus.ts
 //                      (empty, unversioned, another schema or ETL version, other
 //                      data). scripts/update.sh uses this to reload only when
 //                      needed.
@@ -41,6 +54,9 @@ import { loadConfig } from "../config.js";
 import { makePool, applySchemaFile } from "../db.js";
 import { SCHEMA_VERSION, ETL_VERSION } from "./schemaVersion.js";
 import { checkStatus, type SchemaMeta } from "./checkStatus.js";
+import {
+  parseReplaceArgs, seasonDeleteStatements, seasonGamePredicate, REFERENCE_TABLES, type ReplacePlan,
+} from "./replace.js";
 import {
   loadPeople, loadTeams, loadBallparks, loadCoaches, loadEjections, loadRelatives,
 } from "./reference.js";
@@ -110,21 +126,163 @@ async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolea
 // this parser/loader? Reads the schema_meta row and leaves the decision to
 // checkStatus(); prints its message and returns its exit code.
 async function checkCurrent(pool: Pool, schema: string, dataVersion: string | undefined): Promise<number> {
-  const { rows } = await pool.query(
-    `SELECT to_regclass($1) IS NOT NULL AS has_meta`, [`${schema}.schema_meta`],
-  );
-  let meta: SchemaMeta | undefined;
-  if (rows[0]?.has_meta) {
-    meta = (await pool.query(`SELECT * FROM ${schema}.schema_meta LIMIT 1`)).rows[0] as SchemaMeta | undefined;
-  }
+  const meta = await readSchemaMeta(pool, schema);
   const result = checkStatus(meta, dataVersion, { schemaVersion: SCHEMA_VERSION, etlVersion: ETL_VERSION });
   console.log(result.message);
   return result.exitCode;
 }
 
+/** The schema_meta row, or undefined when the database has no versioned schema. */
+async function readSchemaMeta(pool: Pool, schema: string): Promise<SchemaMeta | undefined> {
+  const { rows } = await pool.query(
+    `SELECT to_regclass($1) IS NOT NULL AS has_meta`, [`${schema}.schema_meta`],
+  );
+  if (!rows[0]?.has_meta) return undefined;
+  return (await pool.query(`SELECT * FROM ${schema}.schema_meta LIMIT 1`)).rows[0] as SchemaMeta | undefined;
+}
+
+// Heartbeat clock: a line every 5s with elapsed time + live play count, so a
+// stall is obvious in seconds rather than after the whole load. Phases loading
+// plays show the running count; other phases (daily aggregation, commit) set
+// `detail` so the line reflects real work.
+function startTicker(progress: LoadProgress, started: number): NodeJS.Timeout {
+  const ticker = setInterval(() => {
+    const s = ((Date.now() - started) / 1000).toFixed(0);
+    const seasonInfo = progress.seasonsTotal
+      ? ` (${progress.seasonsDone}/${progress.seasonsTotal} seasons finished)`
+      : "";
+    const status = progress.detail || `${progress.plays.toLocaleString()} plays loaded${seasonInfo}`;
+    console.log(`  … [${s}s] ${progress.label}: ${status}`);
+  }, 5000);
+  ticker.unref();
+  return ticker;
+}
+
+function printCounts(counts: Record<string, number>, started: number): void {
+  console.log("\nLoaded rows:");
+  for (const [table, n] of Object.entries(counts)) {
+    console.log(`  ${table.padEnd(16)} ${n.toLocaleString()}`);
+  }
+  console.log(`\nDone in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+}
+
+// --replace: the partial load. Same transaction discipline as the full load —
+// readers see the old rows until COMMIT, and a failure leaves them untouched.
+async function replaceLoad(
+  cfg: ReturnType<typeof loadConfig>,
+  plan: ReplacePlan,
+  dataVersion: string | undefined,
+): Promise<void> {
+  const started = Date.now();
+  if (!dataVersion) {
+    throw new Error("--replace needs RETROSHEET_VERSION (scripts/data-version.sh) to record what was loaded.");
+  }
+  const pool = makePool(cfg.databaseUrl);
+  try {
+    // A partial load only makes sense on a database that is a full load by this
+    // schema and ETL, from a known data version; anything else needs the full load.
+    const meta = await readSchemaMeta(pool, cfg.schema);
+    const refuse = (why: string): never => {
+      throw new Error(`--replace refused: ${why}. Run a full load instead.`);
+    };
+    if (!meta) throw new Error("--replace refused: the database has no versioned schema. Run a full load instead.");
+    if (meta.version !== SCHEMA_VERSION) refuse(`database is schema v${meta.version ?? 0}, code is v${SCHEMA_VERSION}`);
+    if (meta.etl_version !== ETL_VERSION) refuse(`database was loaded by ETL v${meta.etl_version ?? 0}, code is v${ETL_VERSION}`);
+    if (meta.data_version == null) refuse("the database recorded no data version (a bare or partial load)");
+
+    const what = [
+      plan.seasons.length ? `seasons ${plan.seasons.join(", ")}` : "",
+      plan.reference ? "reference data" : "",
+      plan.gamelog ? "game logs" : "",
+    ].filter(Boolean).join("; ") || "nothing";
+    console.log(`Replacing ${what} (from ${meta.data_version} to ${dataVersion}) …`);
+
+    const counts: Record<string, number> = {};
+    const progress: LoadProgress = { plays: 0, label: "preparing", detail: "" };
+    const ticker = startTicker(progress, started);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET search_path TO ${cfg.schema}`);
+      const root = cfg.retrosheetDir;
+
+      if (plan.seasons.length) {
+        const seasons = new Set(plan.seasons);
+        progress.label = "deleting seasons";
+        progress.detail = "deleting the seasons' rows …";
+        for (const stmt of seasonDeleteStatements(plan.seasons)) {
+          await client.query(stmt);
+        }
+        progress.detail = "";
+        progress.label = "rosters/schedules";
+        counts.roster = await loadRosters(client, root, seasons);
+        counts.schedule = await loadSchedules(client, root, seasons);
+        progress.label = "events (play-by-play)";
+        Object.assign(counts, await loadEvents(client, root, seasons, progress));
+        progress.label = "daily stat lines";
+        const where = `game_id IN (SELECT game_id FROM game WHERE ${seasonGamePredicate(plan.seasons)})`;
+        Object.assign(counts, await loadDaily(client, progress, where));
+      }
+
+      if (plan.reference) {
+        progress.label = "reference";
+        progress.detail = "reloading the reference tables …";
+        await client.query(`TRUNCATE ${REFERENCE_TABLES.join(", ")} RESTART IDENTITY`);
+        counts.people = await loadPeople(client, root);
+        counts.teams = await loadTeams(client, root);
+        counts.ballparks = await loadBallparks(client, root);
+        counts.coaches = await loadCoaches(client, root);
+        counts.ejections = await loadEjections(client, root);
+        counts.relatives = await loadRelatives(client, root);
+        progress.detail = "";
+      }
+
+      if (plan.gamelog) {
+        progress.label = "game logs (managers)";
+        progress.detail = "reloading game_log …";
+        await client.query("TRUNCATE game_log RESTART IDENTITY");
+        counts.game_log = await loadGameLogs(client, root);
+        progress.detail = "";
+      }
+
+      await client.query(
+        "UPDATE schema_meta SET data_version = $1, etl_version = $2, loaded_at = now()",
+        [dataVersion, ETL_VERSION],
+      );
+      progress.label = "committing";
+      progress.detail = "flushing the transaction …";
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      clearInterval(ticker);
+      client.release();
+    }
+    printCounts(counts, started);
+  } finally {
+    await pool.end();
+  }
+}
+
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const dataVersion = process.env.RETROSHEET_VERSION?.trim() || undefined;
+  if (process.argv.includes("--data-version")) {
+    const pool = makePool(cfg.databaseUrl);
+    try {
+      const { rows } = await pool.query(
+        `SELECT to_regclass($1) IS NOT NULL AS has_meta`, [`${cfg.schema}.schema_meta`],
+      );
+      const stored = rows[0]?.has_meta
+        ? (await pool.query(`SELECT data_version FROM ${cfg.schema}.schema_meta LIMIT 1`)).rows[0]?.data_version
+        : null;
+      console.log(stored ?? "");
+    } finally {
+      await pool.end();
+    }
+    return;
+  }
   if (process.argv.includes("--check")) {
     const pool = makePool(cfg.databaseUrl);
     try {
@@ -144,6 +302,12 @@ async function main(): Promise<void> {
       `RETROSHEET_DIR does not exist: ${cfg.retrosheetDir}\n` +
         `Set RETROSHEET_DIR to a Retrosheet clone, or run scripts/fetch-data.sh.`,
     );
+  }
+
+  const replace = parseReplaceArgs(process.argv);
+  if (replace) {
+    await replaceLoad(cfg, replace, dataVersion);
+    return;
   }
 
   const pool = makePool(cfg.databaseUrl);
@@ -170,20 +334,8 @@ async function main(): Promise<void> {
     console.log(`Schema ready (version ${SCHEMA_VERSION}). Reloading data …`);
 
     const counts: Record<string, number> = {};
-    // Heartbeat clock: a line every 5s with elapsed time + live play count, so a
-    // stall is obvious in seconds rather than after the whole load.
     const progress: LoadProgress = { plays: 0, label: "preparing", detail: "" };
-    const ticker = setInterval(() => {
-      const s = ((Date.now() - started) / 1000).toFixed(0);
-      // Phases loading plays show the running count; other phases (daily
-      // aggregation, commit) set `detail` so the line reflects real work.
-      const seasonInfo = progress.seasonsTotal
-        ? ` (${progress.seasonsDone}/${progress.seasonsTotal} seasons finished)`
-        : "";
-      const status = progress.detail || `${progress.plays.toLocaleString()} plays loaded${seasonInfo}`;
-      console.log(`  … [${s}s] ${progress.label}: ${status}`);
-    }, 5000);
-    ticker.unref();
+    const ticker = startTicker(progress, started);
 
     const client = await pool.connect();
     try {
@@ -248,11 +400,7 @@ async function main(): Promise<void> {
       client.release();
     }
 
-    console.log("\nLoaded rows:");
-    for (const [table, n] of Object.entries(counts)) {
-      console.log(`  ${table.padEnd(16)} ${n.toLocaleString()}`);
-    }
-    console.log(`\nDone in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+    printCounts(counts, started);
   } finally {
     await pool.end();
   }

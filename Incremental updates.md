@@ -51,6 +51,10 @@ whole, so they need no bootstrapping.
     1987, 1988 and the game logs"), and asks; `y` runs the partial load.
   - Schema or ETL change, an unknown version, or a diff that cannot be made:
     full reload, asked as today. `--force` stays a full reload.
+  - A change set covering most of the seasons is offered as a full reload
+    too: an upstream merge can touch every file (seen 2026-10-23, a
+    line-ending normalization), and 155 delete-and-load rounds gain nothing
+    over a truncate.
 - **Phase 4 — Prove it and document it.**
   - A dev-only `npm run verify:incremental`: full load at an older clone
     commit, move to a newer one, partial load, then compare with a fresh full
@@ -94,6 +98,11 @@ whole, so they need no bootstrapping.
   diff against, only a full load is sound. `update.sh` already asks in that case.
 - **One transaction per partial load, same as today**, so the API keeps
   serving the old rows until the commit and a failure leaves nothing half-done.
+- **A change set above half the seasons becomes a full reload.** Deleting and
+  reloading nearly everything season by season is slower than the truncate the
+  full load does, and the daily aggregation then runs once over the whole
+  `play` table instead of once per season. The threshold lives in `update.sh`;
+  the loader reloads whatever set it is given.
 - **File-level reload comes after season-level, not instead of it.** The season
   path is simpler to get right and to verify, and the file path reuses its
   delete-then-load shape with a narrower game set. Season reload remains the

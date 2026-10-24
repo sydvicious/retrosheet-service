@@ -19,19 +19,23 @@ export interface CodeVersions {
 }
 
 /**
- * current — fully loaded at this code's versions from this data; nothing to do.
- * empty   — no versioned schema: a first load, nothing to lose.
- * changed — the schema, the ETL, or the data differs from what was loaded.
- * unknown — nothing to compare the data against: the database recorded no data
- *           version (a bare or partial load) or none was supplied.
+ * current      — fully loaded at this code's versions from this data; nothing to do.
+ * empty        — no versioned schema: a first load, nothing to lose.
+ * changed      — the schema or the ETL differs from what loaded the database:
+ *                only a full reload can fix it.
+ * data-changed — schema and ETL match but the Retrosheet data differs: a
+ *                partial reload of what changed is possible (replace.ts).
+ * unknown      — nothing to compare the data against: the database recorded no
+ *                data version (a bare or partial load) or none was supplied.
  */
-export type CheckStatus = "current" | "empty" | "changed" | "unknown";
+export type CheckStatus = "current" | "empty" | "changed" | "data-changed" | "unknown";
 
 export const EXIT_CODES: Record<CheckStatus, number> = {
   current: 0,
   changed: 10,
   empty: 11,
   unknown: 12,
+  "data-changed": 13,
 };
 
 export interface CheckResult {
@@ -67,8 +71,8 @@ export function checkStatus(
       `Database recorded no Retrosheet data version (a bare or partial load), so the data can't be compared; data dir is ${dataVersion}.`);
   }
   if (meta.data_version !== dataVersion) {
-    return result("changed",
-      `Database holds Retrosheet data ${meta.data_version}, data dir is ${dataVersion} — a reload is needed.`);
+    return result("data-changed",
+      `Database holds Retrosheet data ${meta.data_version}, data dir is ${dataVersion} — the changed data needs reloading.`);
   }
   return result("current",
     `Database is current (schema v${code.schemaVersion}, ETL v${code.etlVersion}, Retrosheet data ${dataVersion}) — no load needed.`);

@@ -148,6 +148,8 @@ vite.config.ts.timestamp-*
 
 # Retrosheet source data (fetched, not committed — separately copyrighted)
 /.data
+# scripts/verify-incremental.sh work area (extracted Retrosheet trees + snapshots)
+/.verify
 # legacy location (pre-.data rename); keep ignored so it's never committed
 /data/
 
