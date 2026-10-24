@@ -4,7 +4,9 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { gameRow, GAME_COLS, firstCopies, onlyGames, gameIdsInEventFile } from "../../src/etl/events.js";
+import {
+  gameRow, GAME_COLS, firstCopies, onlyGames, gameIdsInEventFile, gameCopiesInEventFile,
+} from "../../src/etl/events.js";
 import { eventFiles } from "../../src/etl/paths.js";
 import { parseEventFile } from "../../src/parse/eventFile.js";
 
@@ -63,52 +65,71 @@ describe("eventFiles", () => {
   });
 });
 
+// A game copy: its id and a hash of its records. Copies with the same hash are
+// the same game; tests name the hashes after what they stand for.
+const copy = (id: string, hash = id): readonly [string, string] => [id, hash];
+
 describe("firstCopies", () => {
   it("loads every game from its file when no id repeats", () => {
-    const { load, skipped } = firstCopies([
-      ["seasons/1937/1937.EVR", ["CBN193705020", "CBN193705030"]],
-      ["seasons/1937/1937CHN.EVN", ["CHN193704200"]],
+    const { load, skipped, repeats } = firstCopies([
+      ["seasons/1937/1937.EVR", [copy("CBN193705020"), copy("CBN193705030")]],
+      ["seasons/1937/1937CHN.EVN", [copy("CHN193704200")]],
     ]);
     expect(load).toEqual(new Map([
       ["seasons/1937/1937.EVR", new Set(["CBN193705020", "CBN193705030"])],
       ["seasons/1937/1937CHN.EVN", new Set(["CHN193704200"])],
     ]));
     expect(skipped).toEqual(new Map());
+    expect(repeats).toEqual([]);
   });
 
   it("keeps the copy in the earlier file when two files hold a game", () => {
-    const { load, skipped } = firstCopies([
-      ["seasons/1937/1937.EVR", ["CBN193705020"]],
-      ["seasons/1937/1937NGL.EVR", ["CBN193705020", "HOM193705090"]],
+    const { load, skipped, repeats } = firstCopies([
+      ["seasons/1937/1937.EVR", [copy("CBN193705020")]],
+      ["seasons/1937/1937NGL.EVR", [copy("CBN193705020"), copy("HOM193705090")]],
     ]);
     expect(load.get("seasons/1937/1937.EVR")).toEqual(new Set(["CBN193705020"]));
     expect(load.get("seasons/1937/1937NGL.EVR")).toEqual(new Set(["HOM193705090"]));
     expect(skipped).toEqual(new Map([["seasons/1937/1937NGL.EVR", 1]]));
+    expect(repeats).toEqual([]);
   });
 
   it("keeps the first of two copies inside one file", () => {
     const { load, skipped } = firstCopies([
-      ["seasons/1935/1935.EVR", ["PRG193512012", "PIR193512020", "PRG193512012"]],
+      ["seasons/1935/1935.EVR", [copy("PRG193512012"), copy("PIR193512020"), copy("PRG193512012")]],
     ]);
     expect(load.get("seasons/1935/1935.EVR")).toEqual(new Set(["PRG193512012", "PIR193512020"]));
     expect(skipped).toEqual(new Map([["seasons/1935/1935.EVR", 1]]));
   });
 
+  it("reports a repeated id whose skipped copies differ from the one that loads", () => {
+    const { repeats } = firstCopies([
+      ["seasons/1935/1935.EVR", [copy("PRG193512012", "nine innings"), copy("PRG193512012", "five innings")]],
+      ["seasons/1935/1935NGL.EVR", [copy("PRG193512012", "nine innings"), copy("PRG193512012", "five innings")]],
+    ]);
+    expect(repeats).toEqual([
+      { gameId: "PRG193512012", kept: "seasons/1935/1935.EVR", differing: ["seasons/1935/1935.EVR", "seasons/1935/1935NGL.EVR"] },
+    ]);
+  });
+
   it("follows the order the files are given in", () => {
     const { load } = firstCopies([
-      ["seasons/1937/1937NGL.EVR", ["CBN193705020"]],
-      ["seasons/1937/1937.EVR", ["CBN193705020"]],
+      ["seasons/1937/1937NGL.EVR", [copy("CBN193705020")]],
+      ["seasons/1937/1937.EVR", [copy("CBN193705020")]],
     ]);
     expect(load.get("seasons/1937/1937NGL.EVR")).toEqual(new Set(["CBN193705020"]));
     expect(load.get("seasons/1937/1937.EVR")).toEqual(new Set());
   });
 
-  it("skips games already loaded by an earlier call that shares the seen set", () => {
-    const seen = new Set<string>();
-    firstCopies([["seasons/1937/1937.EVR", ["CBN193705020"]]], seen);
-    const { load, skipped } = firstCopies([["seasons/1938/1938.EVR", ["CBN193705020", "HOM193805010"]]], seen);
+  it("skips games already loaded by an earlier call that shares the seen map", () => {
+    const seen = new Map();
+    firstCopies([["seasons/1937/1937.EVR", [copy("CBN193705020", "a")]]], seen);
+    const { load, skipped, repeats } = firstCopies(
+      [["seasons/1938/1938.EVR", [copy("CBN193705020", "b"), copy("HOM193805010")]]], seen,
+    );
     expect(load.get("seasons/1938/1938.EVR")).toEqual(new Set(["HOM193805010"]));
     expect(skipped).toEqual(new Map([["seasons/1938/1938.EVR", 1]]));
+    expect(repeats).toEqual([{ gameId: "CBN193705020", kept: "seasons/1937/1937.EVR", differing: ["seasons/1938/1938.EVR"] }]);
   });
 });
 
@@ -131,5 +152,22 @@ describe("gameIdsInEventFile", () => {
     const text = ["id,CBN193705020", "info,visteam,HOM", "id,\"CBN193705030\"", "id, HOM193705090 ,", ""].join("\r\n");
     writeFileSync(file, text);
     expect(gameIdsInEventFile(file)).toEqual(parseEventFile(text).map((g) => g.gameId));
+  });
+});
+
+describe("gameCopiesInEventFile", () => {
+  const write = (name: string, lines: string[], eol = "\n"): string => {
+    const file = join(mkdtempSync(join(tmpdir(), "copies-")), name);
+    writeFileSync(file, lines.join(eol));
+    return file;
+  };
+  const game = (id: string, winner: string): string[] => [`id,${id}`, "info,visteam,PIR", `info,wp,${winner}`];
+
+  it("gives each game its id and the same hash for the same records", () => {
+    const a = gameCopiesInEventFile(write("1935.EVR", [...game("PRG193512012", "grifr101"), ...game("PRG193512012", "paigs101")]));
+    const b = gameCopiesInEventFile(write("1935NGL.EVR", [...game("PRG193512012", "grifr101"), ""], "\r\n"));
+    expect(a.map(([id]) => id)).toEqual(["PRG193512012", "PRG193512012"]);
+    expect(a[0]![1]).not.toEqual(a[1]![1]);
+    expect(b[0]![1]).toEqual(a[0]![1]);
   });
 });

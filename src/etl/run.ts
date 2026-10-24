@@ -54,7 +54,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import type { Pool, PoolClient } from "pg";
 import { loadConfig } from "../config.js";
-import { makePool, applySchemaFile } from "../db.js";
+import { makePool, applySchemaFile, copyRows } from "../db.js";
 import { SCHEMA_VERSION, ETL_VERSION } from "./schemaVersion.js";
 import { checkStatus, type SchemaMeta } from "./checkStatus.js";
 import { formatDuration } from "./duration.js";
@@ -63,6 +63,7 @@ import {
   rosterDeleteStatement, scheduleDeleteStatement, referenceDeleteStatements, copySeasons,
   type ReplacePlan,
 } from "./replace.js";
+import { GAP_COLS, computedGapStatements, repeatedGameRows, repeatedGameDeleteStatements } from "./gaps.js";
 import { loadSchemas, prepareStatements, swapStatements, cleanupStatements } from "./swap.js";
 import { join } from "node:path";
 import { readTeamLeagues } from "./gameClass.js";
@@ -227,6 +228,9 @@ async function replaceLoad(
         counts.roster = await loadRosters(client, root, seasons);
         counts.schedule = await loadSchedules(client, root, seasons);
         progress.label = "events (play-by-play)";
+        for (const stmt of repeatedGameDeleteStatements(plan.seasons)) {
+          await client.query(stmt);
+        }
         Object.assign(counts, await loadEvents(client, root, teamLeagues, seasons, progress));
         progress.label = "daily stat lines";
         const where = `game_id IN (SELECT game_id FROM game WHERE ${seasonGamePredicate(plan.seasons)})`;
@@ -254,9 +258,14 @@ async function replaceLoad(
         progress.label = "events (changed files)";
         // Each game reloads from its first copy, as in a full load; when
         // Retrosheet repeats a game, that copy can sit in an unchanged file.
-        const seasonFiles = copySeasons(plan.files, [...ids]).flatMap((y) => eventFiles(root, y));
-        const load = onlyGames(firstCopiesIn(seasonFiles), ids);
-        Object.assign(counts, await loadEventFiles(client, [...load.keys()], teamLeagues, load, undefined, progress));
+        const years = copySeasons(plan.files, [...ids]);
+        const { load, repeats } = firstCopiesIn(years.flatMap((y) => eventFiles(root, y)));
+        for (const stmt of repeatedGameDeleteStatements(years)) {
+          await client.query(stmt);
+        }
+        if (repeats.length) await copyRows(client, "data_gap", GAP_COLS, repeatedGameRows(repeats));
+        const games = onlyGames(load, ids);
+        Object.assign(counts, await loadEventFiles(client, [...games.keys()], teamLeagues, games, undefined, progress));
         progress.label = "daily stat lines";
         Object.assign(counts, await loadDaily(client, progress, "game_id IN (SELECT game_id FROM replaced_games)"));
       }
@@ -295,6 +304,13 @@ async function replaceLoad(
         counts.game_log = await loadGameLogs(client, root);
         progress.detail = "";
       }
+
+      progress.label = "data gaps";
+      progress.detail = "measuring data gaps …";
+      for (const stmt of computedGapStatements()) {
+        await client.query(stmt);
+      }
+      progress.detail = "";
 
       await client.query(
         "UPDATE schema_meta SET data_version = $1, etl_version = $2, loaded_at = now()",
@@ -420,6 +436,14 @@ async function main(): Promise<void> {
       console.log("Aggregating daily stat lines from plays …");
       const dailyCounts = await loadDaily(client, progress);
       Object.assign(counts, dailyCounts);
+
+      progress.label = "data gaps";
+      progress.detail = "measuring data gaps …";
+      console.log("Measuring data gaps …");
+      for (const stmt of computedGapStatements()) {
+        await client.query(stmt);
+      }
+      progress.detail = "";
 
       // Record which data this is and which ETL produced it, in the same
       // transaction, so a failed load never claims it. A partial (SEASONS=) load

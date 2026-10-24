@@ -54,7 +54,9 @@ Built in phases:
   file. The loader loads the first copy (seasons in order, files by name, games
   in file order) and skips the rest, printing how many each file skipped. That
   is the copy upstream kept when it removed them. A partial reload reloads each
-  game from the same first copy, even when it sits in an unchanged file.
+  game from the same first copy, even when it sits in an unchanged file. When
+  the copies differ, so that a game is lost rather than repeated, the load
+  records it in `data_gap` (see *Known problems*, *Data gaps*).
 - **Querying:** the auto-generated API exposes a rich `filter` argument
   (ranges, `in`/`notIn`, string `includesInsensitive`/`startsWith`/`like`,
   `isNull`, and `and`/`or`/`not`) via the connection-filter plugin, plus
@@ -375,8 +377,8 @@ database (`retrosheet_verify`), applies the A→B change set with the loader's
 `--replace`, snapshots every table per season (row count and an MD5 over the
 rows minus their identity columns), then fully loads B and snapshots again. Zero
 differences is the pass. It needs Docker's `db` up, the built `dist`, and the
-downloaded game logs; two full loads take about half an hour. Run it after a
-change to `src/etl/*`:
+downloaded game logs, and takes about an hour, so run it on demand, when a
+change to `src/etl/*` needs it:
 
 ```bash
 npm run verify:incremental -- ~/path/to/retrosheet-clone HEAD~2 HEAD
@@ -392,12 +394,13 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
 
 **Deployment**
 
-- None. `warehouse` was reloaded to schema 5 / ETL 4 on 2026-10-24: 204,069
-  games, with `game.source_file` (the event file each game came from),
-  `game.season_phase` (regular / postseason / allstar / exhibition) and
-  `game.league_group` (negro / nonnegro / other), and the 37 `.EVR` Negro
-  Leagues event files (1903–1961) loaded. An installation at an older version
-  gets a full reload from `./scripts/update.sh`. Research predicates that only
+- **`warehouse` is at schema 5; the code is at schema 6**, which adds the
+  `data_gap` table. `./scripts/update.sh` asks for a full reload; the services
+  keep serving the schema 5 data while it runs. `warehouse` was reloaded to
+  schema 5 / ETL 4 on 2026-10-24: 204,069 games, with `game.source_file` (the
+  event file each game came from), `game.season_phase` (regular / postseason /
+  allstar / exhibition) and `game.league_group` (negro / nonnegro / other), and
+  the 37 `.EVR` Negro Leagues event files (1903–1961) loaded. Research predicates that only
   test `game_type` match 1,379 Negro Leagues games typed `regular` once the
   `.EVR` files are in; see `research/README.md`, *Regular season only*.
 - **Any other installation loaded by ETL version 1 or earlier** has the wrong
@@ -425,13 +428,26 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
 
 **Data gaps**
 
-- **Early seasons name no fielder on many outs** (Retrosheet's `99`), so
-  putouts fall short of outs. Putouts as a share of outs recorded: 82% in the
-  1900s, 85% in the 1910s, 93% from the 1920s through the 1940s, 99.3% in the
-  1950s, and 99.8% or better from the 1960s on. Fielding totals before 1950
-  undercount.
-- **Four games have no game-log row**, so their scores cannot be checked:
-  `PIT190010150`, `PIT190010160`, `PIT190010170`, `PIT190010180`.
+Each load records what the data it loaded is missing in the `data_gap` table,
+so the list always matches the database it is in. Query it (or `allDataGaps` over
+GraphQL) for the current figures:
+
+```sql
+SELECT kind, season, league_group, game_id, percent, detail
+  FROM data_gap ORDER BY kind, season, league_group, game_id;
+```
+
+- **`putout_share`: outs with no fielder named.** Retrosheet's `99` credits no
+  putout, so putouts fall short of outs. One row per decade and league group
+  that falls short, with putouts as a share of outs recorded. Fielding totals
+  before 1950 undercount, and the Negro Leagues files name a fielder on few of
+  their outs.
+- **`no_game_log`: games whose final score can't be checked**, because they
+  have no game-log row. Negro Leagues games are left out: Retrosheet publishes
+  no Negro Leagues game logs, so none of them has one.
+- **`repeated_game`: a game id whose copies in the event files differ.** Only
+  the first copy loads (see *A repeated game loads once*), so the others are
+  lost.
 - **One game of a 1935 exhibition doubleheader is missing.** Retrosheet's
   `1935.EVR` held two different games under `PRG193512012` (PIR at PRG,
   December 1), both marked game 2, and none under `PRG193512011`. Upstream kept

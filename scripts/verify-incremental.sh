@@ -29,7 +29,7 @@
 #   GAMELOG_DIR          default ./.data/gamelog — the downloaded gl<year>.txt files
 #   VERIFY_DIR           default ./.verify — work area (gitignored); cleared on start
 #
-# Two full loads take a while (about 15 minutes each on an M-series Mac); run it
+# Two full loads and a partial one take about an hour on an M-series Mac; run it
 # in the background or in tmux.
 set -euo pipefail
 
@@ -90,7 +90,7 @@ snapshot() {
     done
     echo "SELECT 'roster', year, count(*), $H FROM (SELECT year, (to_jsonb(r) - 'id')::text AS x FROM roster r) s GROUP BY 2 ORDER BY 2;"
     echo "SELECT 'schedule', extract(year FROM game_date)::int, count(*), $H FROM (SELECT game_date, (to_jsonb(r) - 'id')::text AS x FROM schedule r) s GROUP BY 2 ORDER BY 2;"
-    for t in people teams ballparks coaches ejections relatives game_log; do
+    for t in people teams ballparks coaches ejections relatives game_log data_gap; do
       echo "SELECT '$t', 0, count(*), $H FROM (SELECT (to_jsonb(t) - 'id')::text AS x FROM $t t) s;"
     done
     echo "SELECT 'schema_meta', 0, version, data_version || ' etl ' || etl_version FROM schema_meta;"

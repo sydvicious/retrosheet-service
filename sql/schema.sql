@@ -569,3 +569,25 @@ CREATE INDEX IF NOT EXISTS game_log_visitor_team_idx   ON game_log (visitor_team
 CREATE INDEX IF NOT EXISTS game_log_home_mgr_idx       ON game_log (home_manager_id);
 CREATE INDEX IF NOT EXISTS game_log_visitor_mgr_idx    ON game_log (visitor_manager_id);
 CREATE INDEX IF NOT EXISTS game_log_park_idx           ON game_log (park_id);
+
+-- ===========================================================================
+-- Data gaps — what the loaded data is missing, recorded by the load that
+-- produced it (src/etl/gaps.ts), so the list always matches this database:
+--   putout_share   putouts as a share of outs recorded, per decade (season =
+--                  its first year) and league group, where they fall short
+--   no_game_log    a game with no game-log row, so its final score can't be
+--                  checked (Negro Leagues games are left out: Retrosheet
+--                  publishes no Negro Leagues game logs)
+--   repeated_game  a game id whose copies in the event files differ; only the
+--                  first loads, so the others are lost
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS data_gap (
+  id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind          text NOT NULL,
+  season        integer,
+  league_group  text,
+  game_id       text,
+  percent       numeric(4,1),
+  detail        text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS data_gap_kind_idx ON data_gap (kind);

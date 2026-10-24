@@ -13,7 +13,7 @@
 // scripts/update.sh does a full reload (which always builds the tables afresh)
 // and the partial --replace load refuses to run, so no load writes rows into
 // stale table definitions.
-export const SCHEMA_VERSION = 5; // v5: game.season_phase, game.league_group; v4: game.source_file; v3: schema_meta.etl_version
+export const SCHEMA_VERSION = 6; // v6: data_gap; v5: game.season_phase, game.league_group; v4: game.source_file; v3: schema_meta.etl_version
 
 // BUMP THIS whenever a change to the parser (src/parse/*) or the loader
 // (src/etl/*) would put different rows in the database from the same Retrosheet

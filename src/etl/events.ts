@@ -9,6 +9,7 @@
 // FK-dependent children), then move on — so memory stays bounded regardless of
 // how much history is loaded.
 import { readFileSync } from "node:fs";
+import { createHash, type Hash } from "node:crypto";
 import { basename } from "node:path";
 import type { PoolClient } from "pg";
 import { copyRows } from "../db.js";
@@ -17,6 +18,7 @@ import { parseEventFile, parseCsvLine, type ParsedGame } from "../parse/eventFil
 import { replayGame } from "../parse/gameState.js";
 import { slashDateToIso, toIntOrNull } from "../parse/dates.js";
 import { seasonPhase, leagueGroup } from "./gameClass.js";
+import { GAP_COLS, repeatedGameRows } from "./gaps.js";
 
 export interface EventCounts {
   game: number;
@@ -162,44 +164,82 @@ const emptyCounts = (): EventCounts => ({
  * a full parse. Read as parseEventFile reads them, so they match its gameIds.
  */
 export function gameIdsInEventFile(file: string): string[] {
-  const ids: string[] = [];
+  return gameCopiesInEventFile(file).map(([id]) => id);
+}
+
+/**
+ * Each game in an event file as [id, hash of its records]: two copies of a
+ * game hash alike when their records are the same, whatever the line endings
+ * or blank lines (which the parser skips).
+ */
+export function gameCopiesInEventFile(file: string): [string, string][] {
+  const copies: [string, string][] = [];
+  let id: string | undefined;
+  let hash: Hash | undefined;
+  const finish = (): void => {
+    if (id !== undefined) copies.push([id, hash!.digest("hex")]);
+  };
   for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-    if (line.startsWith("id,")) ids.push((parseCsvLine(line)[1] ?? "").trim());
+    if (line.startsWith("id,")) {
+      finish();
+      id = (parseCsvLine(line)[1] ?? "").trim();
+      hash = createHash("sha1");
+    }
+    if (hash && line !== "") hash.update(line + "\n");
   }
-  return ids;
+  finish();
+  return copies;
 }
 
 /** For each event file, the games whose copy there is the one to load. */
 export type GameCopies = Map<string, Set<string>>;
+
+/** A game id with skipped copies that differ from the one that loads: the files holding each. */
+export interface RepeatedGame {
+  gameId: string;
+  kept: string;
+  differing: string[];
+}
+
+/** Where the copy of a game that loads came from, and a hash of its records. */
+export type SeenCopies = Map<string, { file: string; hash: string }>;
 
 /**
  * Which copy of each game loads when an id appears more than once: the first,
  * taking the files in the order given and each file's games in file order.
  * Retrosheet releases have repeated games, both in a second file (August 2026:
  * 1913NGL.EVR beside 1913.EVR, and so on) and twice in one file, and upstream
- * fixed them by keeping the first copy. `seen` carries the games already
- * loaded across calls. Returns the games each file loads and how many copies
- * each file skips.
+ * fixed them by keeping the first copy. Each copy comes as [id, hash of its
+ * records]; `seen` carries the copies already loaded across calls. Returns the
+ * games each file loads, how many copies each file skips, and the ids whose
+ * skipped copies differ from the one that loads (a game lost, not a duplicate).
  */
 export function firstCopies(
-  idsByFile: Iterable<readonly [string, readonly string[]]>,
-  seen: Set<string> = new Set(),
-): { load: GameCopies; skipped: Map<string, number> } {
+  copiesByFile: Iterable<readonly [string, readonly (readonly [string, string])[]]>,
+  seen: SeenCopies = new Map(),
+): { load: GameCopies; skipped: Map<string, number>; repeats: RepeatedGame[] } {
   const load: GameCopies = new Map();
   const skipped = new Map<string, number>();
-  for (const [file, ids] of idsByFile) {
+  const differing = new Map<string, RepeatedGame>();
+  for (const [file, copies] of copiesByFile) {
     const mine = new Set<string>();
-    for (const id of ids) {
-      if (seen.has(id)) {
-        skipped.set(file, (skipped.get(file) ?? 0) + 1);
-      } else {
-        seen.add(id);
+    for (const [id, hash] of copies) {
+      const kept = seen.get(id);
+      if (!kept) {
+        seen.set(id, { file, hash });
         mine.add(id);
+        continue;
+      }
+      skipped.set(file, (skipped.get(file) ?? 0) + 1);
+      if (hash !== kept.hash) {
+        const repeat = differing.get(id) ?? { gameId: id, kept: kept.file, differing: [] };
+        repeat.differing.push(file);
+        differing.set(id, repeat);
       }
     }
     load.set(file, mine);
   }
-  return { load, skipped };
+  return { load, skipped, repeats: [...differing.values()] };
 }
 
 /** `load` cut down to the given games, without the files left with none. */
@@ -213,15 +253,24 @@ export function onlyGames(load: GameCopies, games: ReadonlySet<string>): GameCop
 }
 
 /** The first copies among these files, in order, with the copies skipped logged. */
-export function firstCopiesIn(files: readonly string[], seen?: Set<string>): GameCopies {
-  const { load, skipped } = firstCopies(files.map((f) => [f, gameIdsInEventFile(f)] as const), seen);
+export function firstCopiesIn(
+  files: readonly string[],
+  seen?: SeenCopies,
+): { load: GameCopies; repeats: RepeatedGame[] } {
+  const { load, skipped, repeats } = firstCopies(files.map((f) => [f, gameCopiesInEventFile(f)] as const), seen);
   for (const [file, n] of skipped) {
     console.warn(`  ${basename(file)}: skipped ${n} repeated game${n === 1 ? "" : "s"} (an earlier copy loads)`);
   }
-  return load;
+  for (const r of repeats) {
+    console.warn(`  ${r.gameId}: the copy in ${basename(r.kept)} loads; ${r.differing.length} that differ from it are skipped`);
+  }
+  return { load, repeats };
 }
 
-/** Every season with event files, or only the given ones. */
+/**
+ * Every season with event files, or only the given ones. Records the repeated
+ * games it finds in data_gap; a partial load clears the seasons' first.
+ */
 export async function loadEvents(
   client: PoolClient,
   root: string,
@@ -236,10 +285,12 @@ export async function loadEvents(
     progress.seasonsDone = 0;
     progress.seasonsTotal = years.length;
   }
-  const seen = new Set<string>();
+  const seen: SeenCopies = new Map();
   for (const year of years) {
     const files = eventFiles(root, year);
-    await loadEventFiles(client, files, teamLeagues, firstCopiesIn(files, seen), counts, progress);
+    const { load, repeats } = firstCopiesIn(files, seen);
+    if (repeats.length) await copyRows(client, "data_gap", GAP_COLS, repeatedGameRows(repeats));
+    await loadEventFiles(client, files, teamLeagues, load, counts, progress);
     if (progress) progress.seasonsDone = (progress.seasonsDone ?? 0) + 1;
   }
   return counts;
