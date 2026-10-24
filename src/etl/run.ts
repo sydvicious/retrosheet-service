@@ -14,7 +14,9 @@
 //                      restarted afterward to expose structural changes).
 //   --check            Load nothing. Exit 0 if the database is fully loaded at
 //                      this code's SCHEMA_VERSION and ETL_VERSION from
-//                      RETROSHEET_VERSION, or EXIT_NEEDS_LOAD if anything differs
+//                      RETROSHEET_VERSION; 10 if the schema, ETL, or data
+//                      differs; 11 if the database has no versioned schema; 12
+//                      if the data can't be compared (see checkStatus.ts)
 //                      (empty, unversioned, another schema or ETL version, other
 //                      data). scripts/update.sh uses this to reload only when
 //                      needed.
@@ -38,6 +40,7 @@ import type { Pool } from "pg";
 import { loadConfig } from "../config.js";
 import { makePool, applySchemaFile } from "../db.js";
 import { SCHEMA_VERSION, ETL_VERSION } from "./schemaVersion.js";
+import { checkStatus, type SchemaMeta } from "./checkStatus.js";
 import {
   loadPeople, loadTeams, loadBallparks, loadCoaches, loadEjections, loadRelatives,
 } from "./reference.js";
@@ -58,9 +61,6 @@ function describeSeasons(root: string): string {
   }
   return `${years.length} seasons - ${ranges.join("; ")}`;
 }
-
-/** --check exit code: the database must be (re)loaded by this code. */
-const EXIT_NEEDS_LOAD = 10;
 
 const schemaSqlPath = fileURLToPath(new URL("../../sql/schema.sql", import.meta.url));
 
@@ -107,38 +107,19 @@ async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolea
 }
 
 // --check: is the database already a full load of this data by this schema and
-// this parser/loader?
-// Unlike schemaVersionMismatch(), an empty database counts as needing a load.
-async function isCurrent(pool: Pool, schema: string, dataVersion: string | undefined): Promise<boolean> {
+// this parser/loader? Reads the schema_meta row and leaves the decision to
+// checkStatus(); prints its message and returns its exit code.
+async function checkCurrent(pool: Pool, schema: string, dataVersion: string | undefined): Promise<number> {
   const { rows } = await pool.query(
     `SELECT to_regclass($1) IS NOT NULL AS has_meta`, [`${schema}.schema_meta`],
   );
-  if (!rows[0]?.has_meta) {
-    console.log("Database has no versioned schema — a load is needed.");
-    return false;
+  let meta: SchemaMeta | undefined;
+  if (rows[0]?.has_meta) {
+    meta = (await pool.query(`SELECT * FROM ${schema}.schema_meta LIMIT 1`)).rows[0] as SchemaMeta | undefined;
   }
-  const { version, data_version: loaded, etl_version: etlVersion } =
-    (await pool.query(`SELECT * FROM ${schema}.schema_meta LIMIT 1`)).rows[0] ?? {};
-  if (version !== SCHEMA_VERSION) {
-    console.log(`Database is schema v${version ?? 0}, code is v${SCHEMA_VERSION} — a load is needed.`);
-    return false;
-  }
-  if (etlVersion !== ETL_VERSION) {
-    console.log(`Database was loaded by ETL v${etlVersion ?? 0}, code is v${ETL_VERSION} — a load is needed.`);
-    return false;
-  }
-  if (!dataVersion) {
-    console.log("RETROSHEET_VERSION is not set, so the data can't be compared — a load is needed.");
-    return false;
-  }
-  if (loaded !== dataVersion) {
-    console.log(`Database holds Retrosheet data ${loaded ?? "(unknown)"}, data dir is ${dataVersion} — a load is needed.`);
-    return false;
-  }
-  console.log(
-    `Database is current (schema v${SCHEMA_VERSION}, ETL v${ETL_VERSION}, Retrosheet data ${dataVersion}) — no load needed.`,
-  );
-  return true;
+  const result = checkStatus(meta, dataVersion, { schemaVersion: SCHEMA_VERSION, etlVersion: ETL_VERSION });
+  console.log(result.message);
+  return result.exitCode;
 }
 
 async function main(): Promise<void> {
@@ -147,7 +128,7 @@ async function main(): Promise<void> {
   if (process.argv.includes("--check")) {
     const pool = makePool(cfg.databaseUrl);
     try {
-      if (!(await isCurrent(pool, cfg.schema, dataVersion))) process.exitCode = EXIT_NEEDS_LOAD;
+      process.exitCode = await checkCurrent(pool, cfg.schema, dataVersion);
     } finally {
       await pool.end();
     }

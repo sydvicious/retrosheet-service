@@ -152,9 +152,9 @@ docker compose up -d db
 
 # 4. Populate the database (one-shot loader). The play-by-play load takes
 #    several minutes and prints a per-season heartbeat so you can see progress.
-docker compose run --rm loader
+./scripts/load.sh
 #    …or from an existing Retrosheet clone instead of ./.data:
-#    RETROSHEET_DIR=/path/to/retrosheet docker compose run --rm loader
+#    RETROSHEET_DIR=/path/to/retrosheet ./scripts/load.sh
 
 # 5. Bring up the GraphQL API and the MCP server.
 docker compose up -d api mcp
@@ -238,6 +238,14 @@ Both versions live in `src/etl/schemaVersion.ts`.
 - **Neither changed:** no load; the services are just brought up on the new
   images.
 
+An empty database is loaded without asking. When one of the three has changed,
+the script prints which and asks `Reload the database? [y/N]`; when the database
+recorded no data version (a bare or partial load) it says the data can't be
+compared and asks the same. Anything but `y` stops it with the database and the
+running services untouched. `./scripts/update.sh --force` reloads without
+checking or asking. Without a terminal on stdin (a cron job, a pipe) a needed
+reload stops the script with exit 1; use `--force` there.
+
 A code or compose-only change with no new data needs no reload check:
 `./scripts/restart.sh` (see *Start, stop, and reboots*).
 
@@ -250,11 +258,15 @@ session can't abort the multi-minute load:
 tmux new -s retro './scripts/update.sh'   # reattach later: tmux attach -t retro
 ```
 
-For a quick test load, limit seasons. A partial load records no data version, so
-the next `update.sh` does a full reload:
+**Load through `load.sh`, not the bare loader.** The loader records the data's
+version (`scripts/data-version.sh`: the clone commit plus the game-log hash) only
+when it is handed one, and `load.sh` and `update.sh` are what hand it over. A
+bare `docker compose run --rm loader` records none, so the next `update.sh`
+cannot tell the data is unchanged and does one full reload. Likewise a partial
+load, which records no version on purpose:
 
 ```bash
-SEASONS=2023,2024 docker compose run --rm loader
+SEASONS=2023,2024 docker compose run --rm loader   # quick test load; the next update.sh reloads
 ```
 
 ## Quickstart (native, on this Mac dev machine)

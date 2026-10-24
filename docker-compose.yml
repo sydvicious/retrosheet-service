@@ -70,6 +70,10 @@ services:
       DATABASE_URL: postgres://retrosheet:retrosheet@db:5432/retrosheet
       PG_SCHEMA: retrosheet
       RETROSHEET_DIR: /data
+      # Identity of the data being loaded, recorded in schema_meta.data_version;
+      # scripts/load.sh and update.sh export it (scripts/data-version.sh). Empty
+      # for a bare `docker compose run --rm loader`, which then records none.
+      RETROSHEET_VERSION: "${RETROSHEET_VERSION:-}"
     volumes:
       # Host Retrosheet data (defaults to ./.data from scripts/fetch-data.sh),
       # mounted read-only.

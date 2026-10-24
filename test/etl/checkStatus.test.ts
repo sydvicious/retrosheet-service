@@ -1,0 +1,58 @@
+// Copyright (c) 2026 Syd Polk
+// SPDX-License-Identifier: BSD-3-Clause
+import { describe, it, expect } from "vitest";
+import { checkStatus } from "../../src/etl/checkStatus.js";
+
+const code = { schemaVersion: 3, etlVersion: 2 };
+const data = "abc123+gl:0123456789abcdef";
+const current = { version: 3, etl_version: 2, data_version: data };
+
+describe("checkStatus", () => {
+  it("is current when schema, ETL and data all match", () => {
+    expect(checkStatus(current, data, code).status).toBe("current");
+  });
+
+  it("is empty when the database has no schema_meta row", () => {
+    expect(checkStatus(undefined, data, code).status).toBe("empty");
+  });
+
+  it("is changed when the schema version differs", () => {
+    const r = checkStatus({ ...current, version: 2 }, data, code);
+    expect(r.status).toBe("changed");
+    expect(r.message).toMatch(/schema v2.*code is v3/);
+  });
+
+  it("is changed when the ETL version differs", () => {
+    const r = checkStatus({ ...current, etl_version: 1 }, data, code);
+    expect(r.status).toBe("changed");
+    expect(r.message).toMatch(/ETL v1.*code is v2/);
+  });
+
+  it("is changed when the data version differs", () => {
+    const r = checkStatus(current, "def456+gl:fedcba9876543210", code);
+    expect(r.status).toBe("changed");
+    expect(r.message).toContain(data);
+    expect(r.message).toContain("def456+gl:fedcba9876543210");
+  });
+
+  it("is unknown when the database recorded no data version", () => {
+    const r = checkStatus({ ...current, data_version: null }, data, code);
+    expect(r.status).toBe("unknown");
+  });
+
+  it("is unknown when no data version was supplied", () => {
+    expect(checkStatus(current, undefined, code).status).toBe("unknown");
+  });
+
+  it("reports a version mismatch before an unknown data version", () => {
+    const r = checkStatus({ version: 2, etl_version: 2, data_version: null }, data, code);
+    expect(r.status).toBe("changed");
+  });
+
+  it("maps each status to its exit code", () => {
+    expect(checkStatus(current, data, code).exitCode).toBe(0);
+    expect(checkStatus({ ...current, version: 2 }, data, code).exitCode).toBe(10);
+    expect(checkStatus(undefined, data, code).exitCode).toBe(11);
+    expect(checkStatus(current, undefined, code).exitCode).toBe(12);
+  });
+});
