@@ -13,9 +13,9 @@
 #      fetch-data.sh downloads, which aren't in the clone)
 #   4. an empty database is loaded without asking. A schema or ETL change, or a
 #      database that recorded no data version, needs a full reload: say why and
-#      ask. (A schema change drops and rebuilds the schema first, so the API/MCP
-#      are unavailable during that load; otherwise the reload is one transaction,
-#      which leaves the old data if it fails, but queries wait until it commits.)
+#      ask. (The loader builds the new data in a side schema and swaps it in at
+#      its commit, so the API/MCP keep serving the old data during the load and
+#      a failed load leaves it in place.)
 #   5. a data-only change is narrowed with scripts/data-changes.sh to what
 #      changed — individual event files (their games), roster team-years,
 #      season schedules, whole seasons where a season changed too much to do
@@ -27,7 +27,8 @@
 #      the running services untouched. So does another load already running
 #      on the database (the loader allows one at a time).
 #   6. bring up db/api/mcp on the new images (recreating api/mcp after a full
-#      reload so PostGraphile re-introspects the schema)
+#      reload so PostGraphile re-introspects the schema; the only time they are
+#      down, for the seconds they take to start)
 #
 # Usage: scripts/update.sh [--force]
 #   --force   full reload without checking or asking

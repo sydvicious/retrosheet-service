@@ -13,10 +13,10 @@ export function makePool(connectionString: string, searchPath?: string): Pool {
   });
 }
 
-/** Apply a full .sql file (multi-statement) in one shot. Used to (re)create the mart. */
-export async function applySchemaFile(pool: Pool, path: string): Promise<void> {
+/** Apply a full .sql file (multi-statement) in one shot. Used to create the mart's tables. */
+export async function applySchemaFile(client: PoolClient, path: string): Promise<void> {
   const sql = await readFile(path, "utf8");
-  await pool.query(sql);
+  await client.query(sql);
 }
 
 function csvField(v: string | null): string {

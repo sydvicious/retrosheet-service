@@ -9,10 +9,10 @@
 // bump, but bumping is always safe.) Do NOT bump for data-only changes.
 //
 // The loader stamps this number into the `schema_meta` table after applying the
-// schema. On a later load, if the number stamped in the database differs from the
-// number here, the loader forces a full DROP + recreate before loading — so the
-// fast hot-refresh path (no --recreate) can't silently load data
-// into stale table definitions after a structural change.
+// schema. When the number stamped in the database differs from the number here,
+// scripts/update.sh does a full reload (which always builds the tables afresh)
+// and the partial --replace load refuses to run, so no load writes rows into
+// stale table definitions.
 export const SCHEMA_VERSION = 5; // v5: game.season_phase, game.league_group; v4: game.source_file; v3: schema_meta.etl_version
 
 // BUMP THIS whenever a change to the parser (src/parse/*) or the loader

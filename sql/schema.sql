@@ -3,20 +3,15 @@
 --
 -- Retrosheet mart schema. The database is a regenerable, read-only mart.
 --
--- This file is IDEMPOTENT (CREATE ... IF NOT EXISTS, no DROP): applying it never
--- destroys existing objects, so the loader can refresh DATA in place (truncate +
--- reload inside one transaction) without dropping the schema — the running API
--- keeps serving. A full structural rebuild (when these definitions change) is a
--- separate `--recreate` step in the loader that drops the schema first.
-
-CREATE SCHEMA IF NOT EXISTS retrosheet;
-SET search_path TO retrosheet;
+-- Names no schema: the loader applies it with search_path set to a new, empty
+-- side schema, loads that, and renames it into place (src/etl/swap.ts), so the
+-- running API keeps serving the old schema throughout. Every full load builds
+-- these tables from scratch.
 
 -- Structural schema version marker. Single row, enforced by the CHECK on a fixed
 -- boolean PK. The loader stamps src/etl/schemaVersion.ts's SCHEMA_VERSION here
--- after applying this file; on a later load a mismatch forces a full recreate, so
--- a hot data refresh can't load into stale table definitions. Not a data table —
--- never TRUNCATEd during a refresh.
+-- after applying this file; update.sh does a full reload when it differs from
+-- the code's, and a partial reload refuses to run.
 --
 -- data_version identifies the Retrosheet data the tables were loaded from: the
 -- clone's commit hash plus a hash of the separately downloaded game logs (see

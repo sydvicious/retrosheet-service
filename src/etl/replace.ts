@@ -143,7 +143,17 @@ export function scheduleDeleteStatement(seasons: readonly string[]): string {
 
 /**
  * The reference tables, a closed set: coaches.player_id references people and
- * nothing outside this list references any of them, so they truncate and
- * reload together. Listed in load order (people first).
+ * nothing outside this list references any of them, so they are emptied and
+ * reloaded together. Listed in load order (people first).
  */
 export const REFERENCE_TABLES = ["people", "teams", "ballparks", "coaches", "ejections", "relatives"] as const;
+
+/**
+ * Empty the reference tables for a reload. DELETE, not TRUNCATE: TRUNCATE
+ * locks a table against reads until the commit, while readers see the deleted
+ * rows until then. Reverse load order, so coaches go before the people they
+ * reference.
+ */
+export function referenceDeleteStatements(): string[] {
+  return [...REFERENCE_TABLES].reverse().map((t) => `DELETE FROM ${t}`);
+}
