@@ -382,15 +382,15 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
 
 **Deployment**
 
-- **`warehouse` may be behind the code.** The code is schema 5 / ETL 4:
-  `game.source_file` (the event file each game came from), `game.season_phase`
-  (regular / postseason / allstar / exhibition) and `game.league_group` (negro /
-  nonnegro / other), and the 37 `.EVR` Negro Leagues event files (1903–1961)
-  are loaded. Check with `SELECT version, etl_version FROM schema_meta`; an
-  older database gets a full reload from `./scripts/update.sh`, with the API
-  and MCP down while the schema is rebuilt. Research predicates that only test
-  `game_type` match 1,379 Negro Leagues games typed `regular` once the `.EVR`
-  files are in; see `research/README.md`, *Regular season only*.
+- None. `warehouse` was reloaded to schema 5 / ETL 4 on 2026-10-24: 204,069
+  games, with `game.source_file` (the event file each game came from),
+  `game.season_phase` (regular / postseason / allstar / exhibition) and
+  `game.league_group` (negro / nonnegro / other), and the 37 `.EVR` Negro
+  Leagues event files (1903–1961) loaded. An installation at an older version
+  gets a full reload from `./scripts/update.sh`, with the API and MCP down while
+  the schema is rebuilt. Research predicates that only test `game_type` match
+  1,379 Negro Leagues games typed `regular` once the `.EVR` files are in; see
+  `research/README.md`, *Regular season only*.
 - **Queries wait for the whole of a full reload.** The loader truncates every
   table inside its one transaction, and TRUNCATE locks a table against reads
   until the commit. The API waits; the MCP server gives up at its statement
