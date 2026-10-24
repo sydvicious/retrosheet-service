@@ -16,11 +16,13 @@
 #      ask. (A schema change drops and rebuilds the schema first, so the API/MCP
 #      are unavailable during that load; otherwise the reload is one transaction
 #      and they keep serving the old data.)
-#   5. a data-only change is narrowed with scripts/data-changes.sh to the
-#      seasons, reference data, and game logs that changed, and only those are
-#      reloaded (the loader's --replace) after asking. Nothing relevant changed
-#      (an upstream docs commit): the new version is just recorded. More than
-#      half the seasons changed: offered as a full reload instead.
+#   5. a data-only change is narrowed with scripts/data-changes.sh to what
+#      changed — individual event files (their games), roster team-years,
+#      season schedules, whole seasons where a season changed too much to do
+#      file by file, reference data, game logs — and only that is reloaded
+#      (the loader's --replace) after asking. Nothing relevant changed (an
+#      upstream docs commit): the new version is just recorded. More than half
+#      the seasons changed whole: offered as a full reload instead.
 #      Anything but "y" at a question stops the script with the database and
 #      the running services untouched.
 #   6. bring up db/api/mcp on the new images (recreating api/mcp after a full
@@ -95,14 +97,15 @@ partial_reload() {
   echo "==> Working out what changed …"
   old_version="$(docker compose run --rm -T loader node dist/etl/run.js --data-version | tail -1)"
   changes="$(./scripts/data-changes.sh "$old_version" "$RETROSHEET_VERSION")"
-  seasons=""; reference=0; gamelog=0; describe=""
+  # Every key=value line but describe and oldfiles goes to the loader as-is.
+  seasons=""; describe=""; replace_args=()
   while IFS='=' read -r key value; do
     case "$key" in
-      seasons) seasons="$value" ;;
-      reference) reference="$value" ;;
-      gamelog) gamelog="$value" ;;
       describe) describe="$value" ;;
+      oldfiles) ;;
       full) describe="everything (full reload)"; seasons="FULL" ;;
+      "") ;;
+      *) replace_args+=("$key=$value"); [ "$key" = seasons ] && seasons="$value" ;;
     esac
   done <<<"$changes"
 
@@ -133,7 +136,7 @@ partial_reload() {
   echo "Changed: $describe."
   confirm "Reload those?"
   echo "==> Reloading $describe …"
-  docker compose run --rm loader node dist/etl/run.js --replace "seasons=$seasons" "reference=$reference" "gamelog=$gamelog"
+  docker compose run --rm loader node dist/etl/run.js --replace "${replace_args[@]}"
   echo "==> Bringing up the services …"
   docker compose up -d db api mcp
   echo "Updated; reloaded $describe."

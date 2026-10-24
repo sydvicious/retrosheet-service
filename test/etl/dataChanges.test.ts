@@ -87,7 +87,8 @@ describe("planChanges", () => {
   it("combines the diff's classification with the game-log hash", () => {
     const p = planChanges(`${A}+gl:${gl}`, `${B}+gl:${gl}`, ["seasons/1987/1987BAL.EVA", "reference/biofile.csv"]);
     expect(p.full).toBe(false);
-    expect(p.seasons).toEqual(["1987"]);
+    expect(p.seasons).toEqual([]); // one event file is a file-level change, not a season
+    expect(p.eventFiles).toEqual(["seasons/1987/1987BAL.EVA"]);
     expect(p.reference).toBe(true);
     expect(p.gamelog).toBe(false);
   });
@@ -98,7 +99,10 @@ describe("planChanges", () => {
 });
 
 describe("describeChanges", () => {
-  const base = { full: false, seasons: [] as string[], reference: false, gamelog: false };
+  const base = {
+    full: false, seasons: [] as string[], eventFiles: [] as string[], oldEventFiles: [] as string[],
+    rosters: [] as string[], schedules: [] as string[], reference: false, gamelog: false,
+  };
   it("lists seasons, reference data and game logs in one sentence", () => {
     expect(describeChanges({ ...base, seasons: ["1987", "2019"], gamelog: true }))
       .toBe("seasons 1987, 2019; game logs");
@@ -113,12 +117,109 @@ describe("describeChanges", () => {
 });
 
 describe("formatChanges", () => {
-  const base = { full: false, seasons: [] as string[], reference: false, gamelog: false };
+  const base = {
+    full: false, seasons: [] as string[], eventFiles: [] as string[], oldEventFiles: [] as string[],
+    rosters: [] as string[], schedules: [] as string[], reference: false, gamelog: false,
+  };
   it("prints key=value lines for a script to read", () => {
     expect(formatChanges({ ...base, seasons: ["1987", "2019"], gamelog: true }))
       .toBe("seasons=1987,2019\nreference=0\ngamelog=1");
   });
   it("prints just full for a full reload", () => {
     expect(formatChanges({ ...base, full: true })).toBe("full");
+  });
+});
+
+// ---- Phase 5: file-level classification -------------------------------------
+import { classifyChanges, type ChangeEntry } from "../../src/etl/dataChanges.js";
+
+const e = (status: string, path: string): ChangeEntry => ({ status, path });
+
+describe("classifyChanges (file level)", () => {
+  it("replaces a modified event file: load it, and delete the games its old version held", () => {
+    const c = classifyChanges([e("M", "seasons/1909/1909DET.EVA")]);
+    expect(c.seasons).toEqual([]);
+    expect(c.eventFiles).toEqual(["seasons/1909/1909DET.EVA"]);
+    expect(c.oldEventFiles).toEqual(["seasons/1909/1909DET.EVA"]);
+  });
+  it("loads an added event file with nothing to delete, and deletes a removed one with nothing to load", () => {
+    const c = classifyChanges([e("A", "seasons/2026/2026BAL.EVA"), e("D", "seasons/1943/1943CLE.EVA")]);
+    expect(c.eventFiles).toEqual(["seasons/2026/2026BAL.EVA"]);
+    expect(c.oldEventFiles).toEqual(["seasons/1943/1943CLE.EVA"]);
+    expect(c.seasons).toEqual([]);
+  });
+  it("accepts .EVN, .EVA, .EVE and .EVR (Negro Leagues) in any case, as paths.ts reads them", () => {
+    const c = classifyChanges([e("M", "seasons/1990/1990CHN.EVN"), e("M", "seasons/1990/1990als.eve"), e("M", "seasons/1935/1935.EVR")]);
+    expect(c.eventFiles).toEqual(["seasons/1935/1935.EVR", "seasons/1990/1990CHN.EVN", "seasons/1990/1990als.eve"]);
+  });
+  it("replaces a roster file as its team-year, whatever happened to the file", () => {
+    const c = classifyChanges([e("M", "seasons/2019/BAL2019.ROS"), e("D", "seasons/2019/ANA2019.ROS"), e("A", "seasons/1871/BS1-1871.ROS")]);
+    expect(c.rosters).toEqual(["1871:BS1-", "2019:ANA", "2019:BAL"].sort());
+  });
+  it("replaces a season's schedule when its schedule file changed", () => {
+    expect(classifyChanges([e("M", "seasons/2019/2019schedule.csv")]).schedules).toEqual(["2019"]);
+  });
+  it("ignores files the loader does not read, even inside a season", () => {
+    const c = classifyChanges([e("M", "seasons/2019/2019.EBA"), e("M", "seasons/2019/2019.txt"), e("M", "README.md")]);
+    expect(c.seasons).toEqual([]);
+    expect(c.eventFiles).toEqual([]);
+    expect(c.rosters).toEqual([]);
+    expect(c.schedules).toEqual([]);
+  });
+  it("falls back to the whole season for a status it does not understand", () => {
+    const c = classifyChanges([e("R100", "seasons/1920/1920CHN.EVN"), e("M", "seasons/1920/1920BSN.EVN")]);
+    expect(c.seasons).toEqual(["1920"]);
+    expect(c.eventFiles).toEqual([]);
+    expect(c.oldEventFiles).toEqual([]);
+  });
+  it("falls back to the whole season when more than maxFilesPerSeason event files changed", () => {
+    const many = Array.from({ length: 11 }, (_, i) => e("M", `seasons/1987/1987T${i}.EVA`));
+    expect(classifyChanges(many).seasons).toEqual(["1987"]);
+    expect(classifyChanges(many, { maxFilesPerSeason: 11 }).seasons).toEqual([]);
+    expect(classifyChanges(many, { maxFilesPerSeason: 11 }).eventFiles.length).toBe(11);
+  });
+  it("still flags reference data and the clone's game logs", () => {
+    const c = classifyChanges([e("M", "reference/biofile.csv"), e("A", "gamelog/GLWS.TXT")]);
+    expect(c.reference).toBe(true);
+    expect(c.gamelog).toBe(true);
+  });
+  it("keeps a whole-season fallback from swallowing other seasons' file-level changes", () => {
+    const c = classifyChanges([e("R100", "seasons/1920/x.EVN"), e("M", "seasons/1909/1909DET.EVA")]);
+    expect(c.seasons).toEqual(["1920"]);
+    expect(c.eventFiles).toEqual(["seasons/1909/1909DET.EVA"]);
+  });
+});
+
+describe("planChanges / formatChanges / describeChanges at file level", () => {
+  const gl = "0123456789abcdef";
+  const entries = [e("M", "seasons/1909/1909DET.EVA"), e("D", "seasons/1943/1943CLE.EVA"), e("M", "seasons/2019/BAL2019.ROS"), e("M", "seasons/2019/2019schedule.csv")];
+  it("carries the file-level sets through planChanges", () => {
+    const p = planChanges(`${A}+gl:${gl}`, `${B}+gl:${gl}`, entries);
+    expect(p.full).toBe(false);
+    expect(p.eventFiles).toEqual(["seasons/1909/1909DET.EVA"]);
+    expect(p.oldEventFiles).toEqual(["seasons/1909/1909DET.EVA", "seasons/1943/1943CLE.EVA"]);
+    expect(p.rosters).toEqual(["2019:BAL"]);
+    expect(p.schedules).toEqual(["2019"]);
+  });
+  it("prints the extra keys for the shell", () => {
+    const p = planChanges(`${A}+gl:${gl}`, `${B}+gl:${gl}`, entries);
+    expect(formatChanges(p)).toBe([
+      "seasons=",
+      "files=seasons/1909/1909DET.EVA",
+      "oldfiles=seasons/1909/1909DET.EVA,seasons/1943/1943CLE.EVA",
+      "rosters=2019:BAL",
+      "schedules=2019",
+      "reference=0",
+      "gamelog=0",
+    ].join("\n"));
+  });
+  it("describes file-level changes in words", () => {
+    const p = planChanges(`${A}+gl:${gl}`, `${B}+gl:${gl}`, entries);
+    expect(describeChanges(p)).toBe("2 event files (seasons 1909, 1943); roster BAL 2019; schedule 2019");
+  });
+  it("still accepts bare paths as modified files", () => {
+    const p = planChanges(`${A}+gl:${gl}`, `${B}+gl:${gl}`, ["seasons/1909/1909DET.EVA"]);
+    expect(p.eventFiles).toEqual(["seasons/1909/1909DET.EVA"]);
+    expect(p.oldEventFiles).toEqual(["seasons/1909/1909DET.EVA"]);
   });
 });

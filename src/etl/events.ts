@@ -9,6 +9,7 @@
 // FK-dependent children), then move on — so memory stays bounded regardless of
 // how much history is loaded.
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import type { PoolClient } from "pg";
 import { copyRows } from "../db.js";
 import { seasonYears, eventFiles } from "./paths.js";
@@ -47,10 +48,13 @@ function b(v: boolean): string {
   return v ? "true" : "false";
 }
 
-// info keys promoted to typed columns on `game`. Every info key is ALSO stored
-// verbatim in game_info, so promotion is lossless even for unexpected formats.
-const GAME_COLS = [
-  "game_id", "game_date", "game_number", "game_type", "visitor_team", "home_team",
+// info keys promoted to typed columns on `game`, plus source_file: the event
+// file the game came from (e.g. "1935.EVR"), which is how Negro Leagues games
+// (.EVR) are told apart from the AL/NL and postseason files whatever their
+// gametype says. Every info key is ALSO stored verbatim in game_info, so
+// promotion is lossless even for unexpected formats.
+export const GAME_COLS = [
+  "game_id", "source_file", "game_date", "game_number", "game_type", "visitor_team", "home_team",
   "site", "start_time", "day_night", "innings", "tiebreaker", "use_dh",
   "home_team_bats_first", "pitches", "ump_home", "ump_1b", "ump_2b", "ump_3b",
   "ump_lf", "ump_rf", "field_cond", "precip", "sky", "temp", "wind_dir",
@@ -78,12 +82,14 @@ function num(n: number | null): string | null {
   return n === null ? null : String(n);
 }
 
-function gameRow(g: ParsedGame): (string | null)[] {
+/** The `game` row for a parsed game; `sourceFile` is the event file's basename. */
+export function gameRow(g: ParsedGame, sourceFile: string): (string | null)[] {
   const info = new Map<string, string>();
   for (const [k, v] of g.info) info.set(k, v); // last value wins
   const get = (k: string): string | undefined => info.get(k);
   return [
     g.gameId,
+    sourceFile,
     slashDateToIso(get("date")),
     toIntOrNull(get("number")) === null ? null : String(toIntOrNull(get("number"))),
     get("gametype") ?? null,
@@ -137,26 +143,52 @@ export interface LoadProgress {
   seasonsTotal?: number;
 }
 
+const emptyCounts = (): EventCounts => ({
+  game: 0, game_info: 0, lineup_start: 0, substitution: 0,
+  comment: 0, earned_runs: 0, game_adjustment: 0, play: 0, fielding_daily: 0,
+});
+
+/** The game ids an event file holds (its `id,` records), without a full parse. */
+export function gameIdsInEventFile(file: string): string[] {
+  const ids: string[] = [];
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    if (line.startsWith("id,")) ids.push(line.slice(3).trim());
+  }
+  return ids;
+}
+
+/** Every season with event files, or only the given ones. */
 export async function loadEvents(
   client: PoolClient,
   root: string,
   seasons?: Set<string>,
   progress?: LoadProgress,
 ): Promise<EventCounts> {
-  const counts: EventCounts = {
-    game: 0, game_info: 0, lineup_start: 0, substitution: 0,
-    comment: 0, earned_runs: 0, game_adjustment: 0, play: 0, fielding_daily: 0,
-  };
-
+  const counts = emptyCounts();
   const years = seasonYears(root)
     .filter((y) => (!seasons || seasons.has(y)) && eventFiles(root, y).length);
   if (progress) {
     progress.seasonsDone = 0;
     progress.seasonsTotal = years.length;
   }
-
   for (const year of years) {
-    for (const file of eventFiles(root, year)) {
+    await loadEventFiles(client, eventFiles(root, year), counts, progress);
+    if (progress) progress.seasonsDone = (progress.seasonsDone ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Load these event files (absolute paths), one at a time, adding to `counts`.
+ * The file-level replace (run.ts) calls this directly with the changed files.
+ */
+export async function loadEventFiles(
+  client: PoolClient,
+  files: readonly string[],
+  counts: EventCounts = emptyCounts(),
+  progress?: LoadProgress,
+): Promise<EventCounts> {
+  for (const file of files) {
       const games = parseEventFile(readFileSync(file, "utf8"));
 
       const gameRows: (string | null)[][] = [];
@@ -169,9 +201,10 @@ export async function loadEvents(
       const playRows: (string | null)[][] = [];
       const fieldingRows: (string | null)[][] = [];
 
+      const sourceFile = basename(file);
       for (const g of games) {
         if (g.gameId === "") continue;
-        gameRows.push(gameRow(g));
+        gameRows.push(gameRow(g, sourceFile));
         const info = new Map(g.info);
         const visteam = info.get("visteam") ?? null;
         const hometeam = info.get("hometeam") ?? null;
@@ -225,11 +258,8 @@ export async function loadEvents(
       // Update shared progress after each file so the heartbeat clock advances.
       if (progress) {
         progress.plays = counts.play;
-        progress.label = `events ${year}`;
+        progress.label = `events ${basename(file)}`;
       }
-    }
-    if (progress) progress.seasonsDone = (progress.seasonsDone ?? 0) + 1;
   }
-
   return counts;
 }

@@ -7,20 +7,28 @@
 //
 //   node dist/etl/dataChangesCli.js <old data version> <new data version> < paths
 //
-// stdin is the output of `git diff --name-only <old commit> <new commit>`, one
-// path per line (may be empty). Prints formatChanges() followed by a
-// `describe=` line with the human sentence. Exit 0 always; a malformed version
-// is reported as `full`, not as an error.
+// stdin is the output of `git diff --name-status --no-renames <old> <new>`:
+// one `<status>\t<path>` per line (a bare path counts as modified; may be
+// empty). Prints formatChanges() followed by a `describe=` line with the human
+// sentence. Exit 0 always; a malformed version is reported as `full`, not as an
+// error.
 import { readFileSync } from "node:fs";
-import { planChanges, formatChanges, describeChanges } from "./dataChanges.js";
+import { planChanges, formatChanges, describeChanges, type ChangeEntry } from "./dataChanges.js";
 
 const [oldVersion, newVersion] = process.argv.slice(2);
-let paths: string[] = [];
+let entries: (ChangeEntry | string)[] = [];
 try {
-  paths = readFileSync(0, "utf8").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  entries = readFileSync(0, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const tab = l.indexOf("\t");
+      return tab < 0 ? l : { status: l.slice(0, tab).trim(), path: l.slice(tab + 1).trim() };
+    });
 } catch {
-  // No stdin (a tty, or closed): no paths.
+  // No stdin (a tty, or closed): no changes.
 }
-const plan = planChanges(oldVersion, newVersion, paths);
+const plan = planChanges(oldVersion, newVersion, entries);
 console.log(formatChanges(plan));
 console.log(`describe=${describeChanges(plan)}`);

@@ -109,13 +109,18 @@ if echo "$changes" | grep -qx full; then
   echo "The change set is unknown (full); pick a pair whose old commit the clone has." >&2
   exit 1
 fi
-seasons="$(echo "$changes" | sed -n 's/^seasons=//p')"
-reference="$(echo "$changes" | sed -n 's/^reference=//p')"
-gamelog="$(echo "$changes" | sed -n 's/^gamelog=//p')"
+# Every key=value line but describe and oldfiles goes to --replace, as update.sh does.
+replace_args=()
+while IFS='=' read -r key value; do
+  case "$key" in
+    describe|oldfiles|"") ;;
+    *) replace_args+=("$key=$value") ;;
+  esac
+done <<<"$changes"
 
 echo "==> Partial load of B (--replace) …"
 RETROSHEET_DIR="$VERIFY_DIR/$B" RETROSHEET_VERSION="$VER_B" DATABASE_URL="$VERIFY_DATABASE_URL" \
-  node dist/etl/run.js --replace "seasons=$seasons" "reference=$reference" "gamelog=$gamelog" > "$VERIFY_DIR/load-partial.log" 2>&1
+  node dist/etl/run.js --replace "${replace_args[@]}" > "$VERIFY_DIR/load-partial.log" 2>&1
 grep -E "^Replacing|^Done" "$VERIFY_DIR/load-partial.log"
 snapshot > "$VERIFY_DIR/partial.txt"
 

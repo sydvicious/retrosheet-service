@@ -177,6 +177,12 @@ CREATE INDEX IF NOT EXISTS schedule_home_team_idx ON schedule (home_team);
 -- One row per game, from the event file's id + info records.
 CREATE TABLE IF NOT EXISTS game (
   game_id              text PRIMARY KEY,
+  -- The event file the game came from, e.g. 1935BOS.EVA, 1935WS.EVE, 1935.EVR.
+  -- The suffix tells the file kind apart: .EVN/.EVA are NL/AL home games, .EVE
+  -- postseason, All-Star and early-league games, .EVR Negro Leagues games
+  -- (1903-1961). game_type is NULL for most pre-2023 regular-season games, so
+  -- this is the only reliable way to separate Negro Leagues games from the rest.
+  source_file          text,
   game_date            date,
   game_number          integer,
   game_type            text,
@@ -218,6 +224,7 @@ CREATE TABLE IF NOT EXISTS game (
   input_prog_vers      text
 );
 CREATE INDEX IF NOT EXISTS game_game_date_idx ON game (game_date);
+CREATE INDEX IF NOT EXISTS game_source_file_idx ON game (source_file);
 CREATE INDEX IF NOT EXISTS game_home_team_idx ON game (home_team);
 CREATE INDEX IF NOT EXISTS game_visitor_team_idx ON game (visitor_team);
 CREATE INDEX IF NOT EXISTS game_site_idx ON game (site);

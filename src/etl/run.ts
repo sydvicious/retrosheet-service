@@ -9,12 +9,18 @@
 //                      + reload every table inside ONE transaction. Readers see
 //                      old data until commit, then new data — the running API
 //                      keeps serving and needs no restart.
-//   --replace seasons=1987,2019 reference=0 gamelog=1
-//                      Partial reload (Phase 2 of "Incremental updates.md"):
-//                      in ONE transaction, delete the listed seasons' rows and
-//                      reload them, re-aggregate their daily lines, and reload
-//                      the reference tables and/or game_log whole when asked.
-//                      Takes the key=value lines scripts/data-changes.sh prints.
+//   --replace seasons=1987 files=seasons/1909/1909DET.EVA games=DET190904140
+//             rosters=2019:BAL schedules=2019 reference=0 gamelog=1
+//                      Partial reload (Phases 2 and 5 of "Incremental
+//                      updates.md"): in ONE transaction, delete the listed
+//                      seasons' rows and reload them; delete the listed games
+//                      plus the games the listed event files now hold, and load
+//                      those files; replace the listed roster team-years and
+//                      season schedules; re-aggregate daily lines for every
+//                      reloaded game; reload the reference tables and/or
+//                      game_log whole when asked. Takes the key=value lines
+//                      scripts/data-changes.sh prints (it reads `games` from
+//                      the files' old versions).
 //                      Refused unless the database is a full load by this
 //                      schema and ETL version with a recorded data version.
 //                      Needs RETROSHEET_VERSION (the new data's version).
@@ -55,13 +61,15 @@ import { makePool, applySchemaFile } from "../db.js";
 import { SCHEMA_VERSION, ETL_VERSION } from "./schemaVersion.js";
 import { checkStatus, type SchemaMeta } from "./checkStatus.js";
 import {
-  parseReplaceArgs, seasonDeleteStatements, seasonGamePredicate, REFERENCE_TABLES, type ReplacePlan,
+  parseReplaceArgs, seasonDeleteStatements, seasonGamePredicate, gameDeleteStatements,
+  rosterDeleteStatement, scheduleDeleteStatement, REFERENCE_TABLES, type ReplacePlan,
 } from "./replace.js";
+import { join } from "node:path";
 import {
   loadPeople, loadTeams, loadBallparks, loadCoaches, loadEjections, loadRelatives,
 } from "./reference.js";
-import { loadRosters, loadSchedules } from "./seasons.js";
-import { loadEvents, type LoadProgress } from "./events.js";
+import { loadRosters, loadSchedules, loadRosterTeamYears } from "./seasons.js";
+import { loadEvents, type LoadProgress, loadEventFiles, gameIdsInEventFile } from "./events.js";
 import { eventFiles, seasonYears } from "./paths.js";
 import { loadDaily } from "./daily.js";
 import { loadGameLogs } from "./gamelog.js";
@@ -192,6 +200,10 @@ async function replaceLoad(
 
     const what = [
       plan.seasons.length ? `seasons ${plan.seasons.join(", ")}` : "",
+      plan.files.length ? `${plan.files.length} event file(s)` : "",
+      plan.games.length && !plan.files.length ? `${plan.games.length} removed game(s)` : "",
+      plan.rosters.length ? `rosters ${plan.rosters.join(", ")}` : "",
+      plan.schedules.length ? `schedules ${plan.schedules.join(", ")}` : "",
       plan.reference ? "reference data" : "",
       plan.gamelog ? "game logs" : "",
     ].filter(Boolean).join("; ") || "nothing";
@@ -222,6 +234,42 @@ async function replaceLoad(
         progress.label = "daily stat lines";
         const where = `game_id IN (SELECT game_id FROM game WHERE ${seasonGamePredicate(plan.seasons)})`;
         Object.assign(counts, await loadDaily(client, progress, where));
+      }
+
+      // File level: the games to replace are the ones the files' old versions
+      // held (plan.games, read by the host from git) plus the ones the new
+      // files hold now. Collected in a temp table so the deletes and the daily
+      // predicate share one list without inlining thousands of ids.
+      if (plan.files.length || plan.games.length) {
+        const files = plan.files.map((f) => join(root, f)).filter((f) => existsSync(f));
+        const ids = new Set(plan.games);
+        for (const f of files) for (const id of gameIdsInEventFile(f)) ids.add(id);
+        progress.label = "deleting games";
+        progress.detail = `deleting ${ids.size} games' rows …`;
+        await client.query("CREATE TEMP TABLE replaced_games (game_id text PRIMARY KEY) ON COMMIT DROP");
+        if (ids.size) {
+          await client.query("INSERT INTO replaced_games SELECT unnest($1::text[])", [[...ids]]);
+        }
+        for (const stmt of gameDeleteStatements()) {
+          await client.query(stmt);
+        }
+        progress.detail = "";
+        progress.label = "events (changed files)";
+        Object.assign(counts, await loadEventFiles(client, files, undefined, progress));
+        progress.label = "daily stat lines";
+        Object.assign(counts, await loadDaily(client, progress, "game_id IN (SELECT game_id FROM replaced_games)"));
+      }
+
+      if (plan.rosters.length) {
+        progress.label = "rosters";
+        await client.query(rosterDeleteStatement(plan.rosters));
+        counts.roster = (counts.roster ?? 0) + await loadRosterTeamYears(client, root, plan.rosters);
+      }
+
+      if (plan.schedules.length) {
+        progress.label = "schedules";
+        await client.query(scheduleDeleteStatement(plan.schedules));
+        counts.schedule = (counts.schedule ?? 0) + await loadSchedules(client, root, new Set(plan.schedules));
       }
 
       if (plan.reference) {

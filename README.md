@@ -231,16 +231,21 @@ separately. Each load records them in `schema_meta`; the code's versions live in
 
 - **Nothing changed:** no load; the services are just brought up on the new
   images.
-- **Only the data changed:** the script works out which seasons, whether the
-  reference data, and whether the game logs changed (`scripts/data-changes.sh`,
-  a `git diff` between the loaded and the current clone commit plus the
-  game-log hash), prints that, and asks. `y` reloads just those: the seasons'
-  rows are deleted and reloaded and their daily lines re-aggregated, the
-  reference tables and `game_log` are reloaded whole when they changed. One
-  transaction; the services keep serving the old rows until it commits. A
-  season takes seconds. If nothing the loader reads changed (an upstream docs
-  commit), the new version is recorded with no rows touched and no question.
-  If more than half the seasons changed, a full reload is offered instead.
+- **Only the data changed:** the script works out what changed
+  (`scripts/data-changes.sh`: a `git diff` between the loaded and the current
+  clone commit, plus the game-log hash), prints that, and asks. `y` reloads
+  just that. A changed event file is replaced on its own: the games its old
+  version held are deleted (their ids come from `git show` of the old file),
+  the new file is loaded, and those games' daily lines are re-aggregated. A
+  changed roster file replaces its team-year, a changed schedule file its
+  season. A season with more than ten changed event files, or a change git
+  cannot report file by file, is reloaded whole. The reference tables and
+  `game_log` are reloaded whole when they changed. One transaction; the
+  services keep serving the old rows until it commits. A file takes a second
+  or two, a season seconds. If nothing the loader reads changed (an upstream
+  docs commit, or a box-score file), the new version is recorded with no rows
+  touched and no question. If more than half the seasons must be reloaded
+  whole, a full reload is offered instead.
 - **Schema or ETL changed:** a full reload, after asking. An ETL change means
   the rows themselves are computed differently, so everything is rebuilt. A
   schema change also drops and rebuilds the schema first, so **the API and MCP
@@ -365,13 +370,18 @@ npm run verify:incremental -- ~/path/to/retrosheet-clone HEAD~2 HEAD
 
 ## Known problems
 
-As of 2026-10-23. Update this list when a problem is fixed or a new one is found.
+As of 2026-10-24. Update this list when a problem is fixed or a new one is found.
 
 **Deployment**
 
-- None. `warehouse` was reloaded with ETL version 2 on 2026-09-28. Checked
-  there: `play.runs_on_play` reproduces the game-log final in all 201,870 games
-  that have a game-log row, and `batting_daily.runs` summed per side does too.
+- **`warehouse` is one version behind the code.** It holds schema version 3,
+  ETL version 2 (reloaded 2026-09-28; final scores there match the game log in
+  all 201,870 games with a game-log row). The code is schema 4 / ETL 3, which
+  adds `game.source_file` and loads the 37 `.EVR` Negro Leagues event files
+  (1903–1961). The next `./scripts/update.sh` there does a full reload, with the
+  API and MCP down while the schema is rebuilt. Research predicates that only
+  test `game_type` then start matching 1,379 Negro Leagues games typed
+  `regular`; see `research/README.md`, *Regular season only*.
 - **Any other installation loaded by ETL version 1 or earlier** has the wrong
   final in 12.7% of games. Check with `SELECT etl_version FROM schema_meta`;
   `./scripts/update.sh` reloads.

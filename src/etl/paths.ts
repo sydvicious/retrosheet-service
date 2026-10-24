@@ -26,12 +26,16 @@ export function rosterFiles(root: string, year: string): string[] {
     .sort();
 }
 
-/** Event files (.EVN / .EVA / .EVE — play-by-play) for a season, sorted. */
+/**
+ * Event files (play-by-play) for a season, sorted: .EVN (NL home games), .EVA
+ * (AL), .EVE (postseason, All-Star, early leagues) and .EVR (Negro Leagues,
+ * 1903–1961). game.source_file records which one each game came from.
+ */
 export function eventFiles(root: string, year: string): string[] {
   const dir = seasonDir(root, year);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((n) => /\.EV[NAE]$/i.test(n))
+    .filter((n) => /\.EV[NAER]$/i.test(n))
     .map((n) => join(dir, n))
     .sort();
 }

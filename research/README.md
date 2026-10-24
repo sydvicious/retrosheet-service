@@ -152,11 +152,22 @@ pages produce, sorted globally rather than per club.
 
 ### Regular season only, unless a study says otherwise
 
-No All-Star games, no postseason. The predicate is:
+No All-Star games, no postseason, and (since ETL version 3) no Negro Leagues
+games unless the study includes them. The predicate is:
 
 ```sql
-WHERE game_type IS NULL OR game_type = 'regular'
+WHERE (game_type IS NULL OR game_type = 'regular')
+  AND source_file NOT LIKE '%.EVR'
 ```
+
+The second line is new with ETL version 3, which loads Retrosheet's `.EVR`
+event files: Negro Leagues games from 1903 to 1961, 1,379 of them typed
+`regular`, which the first line alone would count as AL/NL regular-season games.
+`game.source_file` names the event file each game came from (`1935BOS.EVA`,
+`1935WS.EVE`, `1935.EVR`), so the suffix is the reliable test. The studies
+written before this use the one-line predicate and have not been re-run against
+ETL version 3; any whose window overlaps 1903–1961 (the ties-by-decade figures
+above do) needs the second line before its numbers are trusted again.
 
 **Why it matters more than it looks.** Postseason usage is not a scaled-down
 version of regular-season usage — it is systematically different, and different
@@ -179,7 +190,9 @@ postseason, so no Ryan-specific 1987 number moved.
 
 Most studies cover **AA / NL / AL only** — but not all, so do not bake the
 assumption into shared helpers. State the scope in each study's README and make
-it visible in the query.
+it visible in the query. The Negro Leagues games (`source_file LIKE '%.EVR'`)
+are in the mart to be studied; a study that includes them says so and drops the
+`source_file` line from the predicate above.
 
 ### Which database
 
