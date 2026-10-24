@@ -14,8 +14,8 @@
 #   4. an empty database is loaded without asking. A schema or ETL change, or a
 #      database that recorded no data version, needs a full reload: say why and
 #      ask. (A schema change drops and rebuilds the schema first, so the API/MCP
-#      are unavailable during that load; otherwise the reload is one transaction
-#      and they keep serving the old data.)
+#      are unavailable during that load; otherwise the reload is one transaction,
+#      which leaves the old data if it fails, but queries wait until it commits.)
 #   5. a data-only change is narrowed with scripts/data-changes.sh to what
 #      changed — individual event files (their games), roster team-years,
 #      season schedules, whole seasons where a season changed too much to do

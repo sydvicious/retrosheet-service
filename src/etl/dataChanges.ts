@@ -5,10 +5,10 @@
 // entries `git diff --name-status --no-renames` lists between their clone
 // commits. Pure, so the classification is tested without git or a database;
 // scripts/data-changes.sh does the git work on the host and feeds this (via
-// dataChangesCli.ts) the results. The plan is in "Incremental updates.md".
+// dataChangesCli.ts) the results.
 //
-// Two levels. Season level (Phase 2): any path under seasons/<year>/ marks the
-// season. File level (Phase 5): an event file is replaced on its own (the games
+// Two levels. Season level: any path under seasons/<year>/ marks the season.
+// File level: an event file is replaced on its own (the games
 // its old version held are deleted, the new file loaded), a roster file as its
 // team-year, a schedule file as its season. A season falls back to the whole
 // season when a change can't be read file by file (an unexpected status) or

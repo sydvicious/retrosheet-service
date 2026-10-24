@@ -5,15 +5,16 @@
 // identically on macOS, Linux, and in the loader container.
 //
 // Modes:
-//   default            Hot data refresh: ensure the schema exists, then TRUNCATE
-//                      + reload every table inside ONE transaction. Readers see
-//                      old data until commit, then new data — the running API
-//                      keeps serving and needs no restart.
+//   default            Full data refresh: ensure the schema exists, then TRUNCATE
+//                      + reload every table inside ONE transaction. A failure
+//                      leaves the old data. TRUNCATE locks every table until
+//                      the commit, so queries wait for the whole load, then see
+//                      the new data; the running API needs no restart.
 //   --replace seasons=1987 files=seasons/1909/1909DET.EVA games=DET190904140
 //             rosters=2019:BAL schedules=2019 reference=0 gamelog=1
-//                      Partial reload (Phases 2 and 5 of "Incremental
-//                      updates.md"): in ONE transaction, delete the listed
-//                      seasons' rows and reload them; delete the listed games
+//                      Partial reload for a data-only update: in ONE
+//                      transaction, delete the listed seasons' rows and
+//                      reload them; delete the listed games
 //                      plus the games the listed event files now hold, and load
 //                      those files; replace the listed roster team-years and
 //                      season schedules; re-aggregate daily lines for every
@@ -213,7 +214,9 @@ function printCounts(counts: Record<string, number>, started: number): void {
 }
 
 // --replace: the partial load. Same transaction discipline as the full load —
-// readers see the old rows until COMMIT, and a failure leaves them untouched.
+// a failure leaves the rows untouched. Rows are deleted rather than truncated,
+// so readers see the old rows until COMMIT; only the reference tables and
+// game_log, truncated when they are reloaded, make queries on them wait.
 async function replaceLoad(
   cfg: ReturnType<typeof loadConfig>,
   plan: ReplacePlan,
@@ -433,7 +436,8 @@ async function main(): Promise<void> {
     try {
       await client.query("BEGIN");
       await client.query(`SET search_path TO ${cfg.schema}`);
-      // Atomic swap: everything below is invisible to readers until COMMIT.
+      // All or nothing until COMMIT. TRUNCATE takes an exclusive lock on every
+      // table, so queries wait from here until the commit.
       await client.query(`TRUNCATE ${ALL_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
 
       const root = cfg.retrosheetDir;

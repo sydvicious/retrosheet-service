@@ -2,9 +2,9 @@
 # Copyright (c) 2026 Syd Polk
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Prove the partial reload against the thing it replaces (Phase 4 of
-# "Incremental updates.md"). Dev-only: needs the built dist, Docker's db
-# service up, a Retrosheet clone WITH HISTORY, and the downloaded game logs.
+# Prove the partial reload against the thing it replaces: a full load of the
+# newer data. Dev-only: needs the built dist, Docker's db service up, a
+# Retrosheet clone WITH HISTORY, and the downloaded game logs.
 #
 #   1. Extract the trees of two upstream commits, A (older) and B (newer), with
 #      `git archive` — the clone itself is never checked out or modified — and

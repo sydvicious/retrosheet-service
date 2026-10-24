@@ -94,7 +94,7 @@ describe("daily SQL builders", () => {
   });
 });
 
-// ---- Phase 5: file-level replace ---------------------------------------------
+// ---- File-level replace ------------------------------------------------------
 import {
   gameDeleteStatements,
   rosterDeleteStatement,

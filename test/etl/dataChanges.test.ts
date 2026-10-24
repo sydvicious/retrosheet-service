@@ -130,7 +130,7 @@ describe("formatChanges", () => {
   });
 });
 
-// ---- Phase 5: file-level classification -------------------------------------
+// ---- File-level classification ----------------------------------------------
 import { classifyChanges, type ChangeEntry } from "../../src/etl/dataChanges.js";
 
 const e = (status: string, path: string): ChangeEntry => ({ status, path });

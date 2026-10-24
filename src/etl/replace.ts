@@ -4,8 +4,7 @@
 // The partial ("--replace") load: which seasons and which whole tables to
 // reload, and the SQL that clears them first. Pure, so the argument parsing,
 // the season predicate, and the delete order are tested without a database;
-// run.ts executes the statements inside the load transaction. Plan: Phase 2 of
-// "Incremental updates.md".
+// run.ts executes the statements inside the load transaction.
 
 /** What a partial load replaces; the shape scripts/data-changes.sh prints. */
 export interface ReplacePlan {
