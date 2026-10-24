@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { gameRow, GAME_COLS } from "../../src/etl/events.js";
+import { gameRow, GAME_COLS, firstCopies, onlyGames, gameIdsInEventFile } from "../../src/etl/events.js";
 import { eventFiles } from "../../src/etl/paths.js";
 import { parseEventFile } from "../../src/parse/eventFile.js";
 
@@ -60,5 +60,76 @@ describe("eventFiles", () => {
     expect(eventFiles(root, "1935").map((f) => f.split("/").pop())).toEqual(
       ["1935.EVR", "1935BOS.EVA", "1935BRO.EVN", "1935WS.EVE"],
     );
+  });
+});
+
+describe("firstCopies", () => {
+  it("loads every game from its file when no id repeats", () => {
+    const { load, skipped } = firstCopies([
+      ["seasons/1937/1937.EVR", ["CBN193705020", "CBN193705030"]],
+      ["seasons/1937/1937CHN.EVN", ["CHN193704200"]],
+    ]);
+    expect(load).toEqual(new Map([
+      ["seasons/1937/1937.EVR", new Set(["CBN193705020", "CBN193705030"])],
+      ["seasons/1937/1937CHN.EVN", new Set(["CHN193704200"])],
+    ]));
+    expect(skipped).toEqual(new Map());
+  });
+
+  it("keeps the copy in the earlier file when two files hold a game", () => {
+    const { load, skipped } = firstCopies([
+      ["seasons/1937/1937.EVR", ["CBN193705020"]],
+      ["seasons/1937/1937NGL.EVR", ["CBN193705020", "HOM193705090"]],
+    ]);
+    expect(load.get("seasons/1937/1937.EVR")).toEqual(new Set(["CBN193705020"]));
+    expect(load.get("seasons/1937/1937NGL.EVR")).toEqual(new Set(["HOM193705090"]));
+    expect(skipped).toEqual(new Map([["seasons/1937/1937NGL.EVR", 1]]));
+  });
+
+  it("keeps the first of two copies inside one file", () => {
+    const { load, skipped } = firstCopies([
+      ["seasons/1935/1935.EVR", ["PRG193512012", "PIR193512020", "PRG193512012"]],
+    ]);
+    expect(load.get("seasons/1935/1935.EVR")).toEqual(new Set(["PRG193512012", "PIR193512020"]));
+    expect(skipped).toEqual(new Map([["seasons/1935/1935.EVR", 1]]));
+  });
+
+  it("follows the order the files are given in", () => {
+    const { load } = firstCopies([
+      ["seasons/1937/1937NGL.EVR", ["CBN193705020"]],
+      ["seasons/1937/1937.EVR", ["CBN193705020"]],
+    ]);
+    expect(load.get("seasons/1937/1937NGL.EVR")).toEqual(new Set(["CBN193705020"]));
+    expect(load.get("seasons/1937/1937.EVR")).toEqual(new Set());
+  });
+
+  it("skips games already loaded by an earlier call that shares the seen set", () => {
+    const seen = new Set<string>();
+    firstCopies([["seasons/1937/1937.EVR", ["CBN193705020"]]], seen);
+    const { load, skipped } = firstCopies([["seasons/1938/1938.EVR", ["CBN193705020", "HOM193805010"]]], seen);
+    expect(load.get("seasons/1938/1938.EVR")).toEqual(new Set(["HOM193805010"]));
+    expect(skipped).toEqual(new Map([["seasons/1938/1938.EVR", 1]]));
+  });
+});
+
+describe("onlyGames", () => {
+  it("keeps just the listed games, and drops files left with none", () => {
+    const load = new Map([
+      ["seasons/1937/1937.EVR", new Set(["CBN193705020", "CBN193705030"])],
+      ["seasons/1937/1937CHN.EVN", new Set(["CHN193704200"])],
+    ]);
+    expect(onlyGames(load, new Set(["CBN193705030", "NYA193704200"]))).toEqual(new Map([
+      ["seasons/1937/1937.EVR", new Set(["CBN193705030"])],
+    ]));
+  });
+});
+
+describe("gameIdsInEventFile", () => {
+  it("reads each id the way the parser does, so the loader's filter never drops a game", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ids-"));
+    const file = join(dir, "1937.EVR");
+    const text = ["id,CBN193705020", "info,visteam,HOM", "id,\"CBN193705030\"", "id, HOM193705090 ,", ""].join("\r\n");
+    writeFileSync(file, text);
+    expect(gameIdsInEventFile(file)).toEqual(parseEventFile(text).map((g) => g.gameId));
   });
 });

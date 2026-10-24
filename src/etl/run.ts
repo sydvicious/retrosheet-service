@@ -17,8 +17,9 @@
 //                      Partial reload for a data-only update: in ONE
 //                      transaction, delete the listed seasons' rows and
 //                      reload them; delete the listed games
-//                      plus the games the listed event files now hold, and load
-//                      those files; replace the listed roster team-years and
+//                      plus the games the listed event files now hold, and
+//                      reload each from its first copy (events.ts
+//                      firstCopies); replace the listed roster team-years and
 //                      season schedules; re-aggregate daily lines for every
 //                      reloaded game; reload the reference tables and/or
 //                      game_log whole when asked. Takes the key=value lines
@@ -59,7 +60,8 @@ import { checkStatus, type SchemaMeta } from "./checkStatus.js";
 import { formatDuration } from "./duration.js";
 import {
   parseReplaceArgs, seasonDeleteStatements, seasonGamePredicate, gameDeleteStatements,
-  rosterDeleteStatement, scheduleDeleteStatement, referenceDeleteStatements, type ReplacePlan,
+  rosterDeleteStatement, scheduleDeleteStatement, referenceDeleteStatements, copySeasons,
+  type ReplacePlan,
 } from "./replace.js";
 import { loadSchemas, prepareStatements, swapStatements, cleanupStatements } from "./swap.js";
 import { join } from "node:path";
@@ -68,7 +70,9 @@ import {
   loadPeople, loadTeams, loadBallparks, loadCoaches, loadEjections, loadRelatives,
 } from "./reference.js";
 import { loadRosters, loadSchedules, loadRosterTeamYears } from "./seasons.js";
-import { loadEvents, type LoadProgress, loadEventFiles, gameIdsInEventFile } from "./events.js";
+import {
+  loadEvents, type LoadProgress, loadEventFiles, gameIdsInEventFile, firstCopiesIn, onlyGames,
+} from "./events.js";
 import { eventFiles, seasonYears } from "./paths.js";
 import { loadDaily } from "./daily.js";
 import { loadGameLogs } from "./gamelog.js";
@@ -248,7 +252,11 @@ async function replaceLoad(
         }
         progress.detail = "";
         progress.label = "events (changed files)";
-        Object.assign(counts, await loadEventFiles(client, files, teamLeagues, undefined, progress));
+        // Each game reloads from its first copy, as in a full load; when
+        // Retrosheet repeats a game, that copy can sit in an unchanged file.
+        const seasonFiles = copySeasons(plan.files, [...ids]).flatMap((y) => eventFiles(root, y));
+        const load = onlyGames(firstCopiesIn(seasonFiles), ids);
+        Object.assign(counts, await loadEventFiles(client, [...load.keys()], teamLeagues, load, undefined, progress));
         progress.label = "daily stat lines";
         Object.assign(counts, await loadDaily(client, progress, "game_id IN (SELECT game_id FROM replaced_games)"));
       }

@@ -69,6 +69,20 @@ export function parseReplaceArgs(argv: readonly string[]): ReplacePlan | undefin
   return plan;
 }
 
+/**
+ * The seasons whose event files a file-level replace reads to find each
+ * replaced game's first copy (events.ts firstCopies): the changed files'
+ * seasons, and the year in each game id, since a copy kept in an unchanged
+ * file belongs to its own season.
+ */
+export function copySeasons(files: readonly string[], gameIds: readonly string[]): string[] {
+  const years = [
+    ...files.map((f) => /^seasons\/(\d{4})\//.exec(f)?.[1]),
+    ...gameIds.map((id) => id.slice(3, 7)),
+  ];
+  return sorted(years.filter((y): y is string => !!y && /^\d{4}$/.test(y)));
+}
+
 /** Season and team of a roster file path (`seasons/2019/BAL2019.ROS` → 2019, BAL). */
 export function rosterTeamYear(path: string): { year: string; team: string } | undefined {
   const m = /^seasons\/(\d{4})\/(.+?)(\d{4})\.ROS$/i.exec(path);

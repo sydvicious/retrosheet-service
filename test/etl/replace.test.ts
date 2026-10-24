@@ -7,6 +7,7 @@ import {
   seasonDeleteStatements,
   REFERENCE_TABLES,
   referenceDeleteStatements,
+  copySeasons,
 } from "../../src/etl/replace.js";
 import { battingSql, pitchingSql } from "../../src/etl/daily.js";
 
@@ -180,5 +181,17 @@ describe("rosterTeamYear", () => {
   });
   it("returns undefined for anything else", () => {
     expect(rosterTeamYear("seasons/2019/2019BAL.EVA")).toBeUndefined();
+  });
+});
+
+describe("copySeasons", () => {
+  it("is the changed files' seasons plus the year in each game id, sorted", () => {
+    expect(copySeasons(
+      ["seasons/1935/1935.EVR", "seasons/1913/1913NGL.EVR"],
+      ["PRG193512012", "CAG191307270", "HOM193607040"],
+    )).toEqual(["1913", "1935", "1936"]);
+  });
+  it("is empty when nothing changed", () => {
+    expect(copySeasons([], [])).toEqual([]);
   });
 });

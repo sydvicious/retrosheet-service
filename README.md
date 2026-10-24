@@ -48,6 +48,13 @@ Built in phases:
   in one transaction. Queries read the old data for the whole load; a failed
   load leaves it. Most new Retrosheet releases need only a partial reload,
   which queries can also read through (see *Update an existing installation*).
+- **A repeated game loads once.** Retrosheet releases have held the same game
+  id twice: the August 2026 release repeated 2,187 Negro Leagues games in a
+  second file (`1937NGL.EVR` beside `1937.EVR`, and so on) and three inside one
+  file. The loader loads the first copy (seasons in order, files by name, games
+  in file order) and skips the rest, printing how many each file skipped. That
+  is the copy upstream kept when it removed them. A partial reload reloads each
+  game from the same first copy, even when it sits in an unchanged file.
 - **Querying:** the auto-generated API exposes a rich `filter` argument
   (ranges, `in`/`notIn`, string `includesInsensitive`/`startsWith`/`like`,
   `isNull`, and `and`/`or`/`not`) via the connection-filter plugin, plus
@@ -421,6 +428,11 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
   undercount.
 - **Four games have no game-log row**, so their scores cannot be checked:
   `PIT190010150`, `PIT190010160`, `PIT190010170`, `PIT190010180`.
+- **One game of a 1935 exhibition doubleheader is missing.** Retrosheet's
+  `1935.EVR` held two different games under `PRG193512012` (PIR at PRG,
+  December 1), both marked game 2, and none under `PRG193512011`. Upstream kept
+  the first, a nine-inning game, and removed the second, a five-inning game, so
+  the mart has the nine-inning one under the game-2 id.
 
 **Maintenance**
 

@@ -13,7 +13,7 @@ import { basename } from "node:path";
 import type { PoolClient } from "pg";
 import { copyRows } from "../db.js";
 import { seasonYears, eventFiles } from "./paths.js";
-import { parseEventFile, type ParsedGame } from "../parse/eventFile.js";
+import { parseEventFile, parseCsvLine, type ParsedGame } from "../parse/eventFile.js";
 import { replayGame } from "../parse/gameState.js";
 import { slashDateToIso, toIntOrNull } from "../parse/dates.js";
 import { seasonPhase, leagueGroup } from "./gameClass.js";
@@ -157,13 +157,68 @@ const emptyCounts = (): EventCounts => ({
   comment: 0, earned_runs: 0, game_adjustment: 0, play: 0, fielding_daily: 0,
 });
 
-/** The game ids an event file holds (its `id,` records), without a full parse. */
+/**
+ * The game ids an event file holds (its `id,` records), in file order, without
+ * a full parse. Read as parseEventFile reads them, so they match its gameIds.
+ */
 export function gameIdsInEventFile(file: string): string[] {
   const ids: string[] = [];
   for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-    if (line.startsWith("id,")) ids.push(line.slice(3).trim());
+    if (line.startsWith("id,")) ids.push((parseCsvLine(line)[1] ?? "").trim());
   }
   return ids;
+}
+
+/** For each event file, the games whose copy there is the one to load. */
+export type GameCopies = Map<string, Set<string>>;
+
+/**
+ * Which copy of each game loads when an id appears more than once: the first,
+ * taking the files in the order given and each file's games in file order.
+ * Retrosheet releases have repeated games, both in a second file (August 2026:
+ * 1913NGL.EVR beside 1913.EVR, and so on) and twice in one file, and upstream
+ * fixed them by keeping the first copy. `seen` carries the games already
+ * loaded across calls. Returns the games each file loads and how many copies
+ * each file skips.
+ */
+export function firstCopies(
+  idsByFile: Iterable<readonly [string, readonly string[]]>,
+  seen: Set<string> = new Set(),
+): { load: GameCopies; skipped: Map<string, number> } {
+  const load: GameCopies = new Map();
+  const skipped = new Map<string, number>();
+  for (const [file, ids] of idsByFile) {
+    const mine = new Set<string>();
+    for (const id of ids) {
+      if (seen.has(id)) {
+        skipped.set(file, (skipped.get(file) ?? 0) + 1);
+      } else {
+        seen.add(id);
+        mine.add(id);
+      }
+    }
+    load.set(file, mine);
+  }
+  return { load, skipped };
+}
+
+/** `load` cut down to the given games, without the files left with none. */
+export function onlyGames(load: GameCopies, games: ReadonlySet<string>): GameCopies {
+  const out: GameCopies = new Map();
+  for (const [file, ids] of load) {
+    const kept = new Set([...ids].filter((id) => games.has(id)));
+    if (kept.size) out.set(file, kept);
+  }
+  return out;
+}
+
+/** The first copies among these files, in order, with the copies skipped logged. */
+export function firstCopiesIn(files: readonly string[], seen?: Set<string>): GameCopies {
+  const { load, skipped } = firstCopies(files.map((f) => [f, gameIdsInEventFile(f)] as const), seen);
+  for (const [file, n] of skipped) {
+    console.warn(`  ${basename(file)}: skipped ${n} repeated game${n === 1 ? "" : "s"} (an earlier copy loads)`);
+  }
+  return load;
 }
 
 /** Every season with event files, or only the given ones. */
@@ -181,8 +236,10 @@ export async function loadEvents(
     progress.seasonsDone = 0;
     progress.seasonsTotal = years.length;
   }
+  const seen = new Set<string>();
   for (const year of years) {
-    await loadEventFiles(client, eventFiles(root, year), teamLeagues, counts, progress);
+    const files = eventFiles(root, year);
+    await loadEventFiles(client, files, teamLeagues, firstCopiesIn(files, seen), counts, progress);
     if (progress) progress.seasonsDone = (progress.seasonsDone ?? 0) + 1;
   }
   return counts;
@@ -190,17 +247,22 @@ export async function loadEvents(
 
 /**
  * Load these event files (absolute paths), one at a time, adding to `counts`.
- * The file-level replace (run.ts) calls this directly with the changed files.
+ * Only the games `load` names for a file load from it, each once. The
+ * file-level replace (run.ts) calls this directly with the files holding the
+ * replaced games' first copies.
  */
 export async function loadEventFiles(
   client: PoolClient,
   files: readonly string[],
   teamLeagues: ReadonlyMap<string, string>,
+  load: GameCopies,
   counts: EventCounts = emptyCounts(),
   progress?: LoadProgress,
 ): Promise<EventCounts> {
   for (const file of files) {
-      const games = parseEventFile(readFileSync(file, "utf8"));
+      const wanted = new Set(load.get(file));
+      const games = parseEventFile(readFileSync(file, "utf8"))
+        .filter((g) => wanted.delete(g.gameId));
 
       const gameRows: (string | null)[][] = [];
       const infoRows: (string | null)[][] = [];
