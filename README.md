@@ -43,12 +43,11 @@ Built in phases:
   implementation built solely from Retrosheet's published format spec. (The
   Chadwick tools are used only on a dev machine, as a black-box oracle, to
   generate golden test fixtures — never read as source; they are GPL.)
-- **The database is a regenerable mart.** `sql/schema.sql` is idempotent; the
-  loader ensures it, then **truncates + reloads every table inside one
-  transaction**. A failed load leaves the old data, and the running API needs
-  no restart; queries wait while the load runs. Most new Retrosheet releases
-  need only a partial reload, which queries can read through (see *Update an
-  existing installation*).
+- **The database is a regenerable mart.** A full load **builds every table
+  afresh in a side schema (`retrosheet_next`) and renames it into place**, all
+  in one transaction. Queries read the old data for the whole load; a failed
+  load leaves it. Most new Retrosheet releases need only a partial reload,
+  which queries can also read through (see *Update an existing installation*).
 - **Querying:** the auto-generated API exposes a rich `filter` argument
   (ranges, `in`/`notIn`, string `includesInsensitive`/`startsWith`/`like`,
   `isNull`, and `and`/`or`/`not`) via the connection-filter plugin, plus
@@ -242,19 +241,19 @@ separately. Each load records them in `schema_meta`; the code's versions live in
   season. A season with more than ten changed event files, or a change git
   cannot report file by file, is reloaded whole. The reference tables and
   `game_log` are reloaded whole when they changed. One transaction; the
-  services keep serving the old rows until it commits, except that queries
-  reading the reference tables or `game_log` wait while those are reloaded. A file takes a second
+  services keep serving the old rows until it commits. A file takes a second
   or two, a season seconds. If nothing the loader reads changed (an upstream
   docs commit, or a box-score file), the new version is recorded with no rows
   touched and no question. If more than half the seasons must be reloaded
   whole, a full reload is offered instead.
 - **Schema or ETL changed:** a full reload, after asking. An ETL change means
   the rows themselves are computed differently, so everything is rebuilt.
-  **Queries wait for the whole load**: the reload truncates
-  every table inside its transaction, which locks them until the commit. A
-  schema change also drops and rebuilds the schema first, so **the API and MCP
-  are unavailable during that load**; the script recreates them afterwards so
-  they see the new tables.
+  The API and MCP keep serving the old data for the whole load: the loader
+  builds the new tables in `retrosheet_next` and, at its commit, renames
+  `retrosheet` aside and `retrosheet_next` into its place, then drops the old
+  one. The script then recreates `api` and `mcp` so PostGraphile sees the new
+  tables, which is the only time they are down. The database needs room for
+  a second copy of the data while the load runs.
 - **Empty database:** loaded without asking.
 - **No full load has finished at this schema** (one failed or was stopped, or
   only a partial `SEASONS=` load ran): a full reload, after asking.
@@ -391,16 +390,9 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
   `game.season_phase` (regular / postseason / allstar / exhibition) and
   `game.league_group` (negro / nonnegro / other), and the 37 `.EVR` Negro
   Leagues event files (1903–1961) loaded. An installation at an older version
-  gets a full reload from `./scripts/update.sh`, with the API and MCP down while
-  the schema is rebuilt. Research predicates that only test `game_type` match
-  1,379 Negro Leagues games typed `regular` once the `.EVR` files are in; see
-  `research/README.md`, *Regular season only*.
-- **Queries wait for the whole of a full reload.** The loader truncates every
-  table inside its one transaction, and TRUNCATE locks a table against reads
-  until the commit. The API waits; the MCP server gives up at its statement
-  timeout. A partial reload deletes rows instead, so queries read the old
-  rows through it, except those reading the reference tables or `game_log`
-  while they are reloaded.
+  gets a full reload from `./scripts/update.sh`. Research predicates that only
+  test `game_type` match 1,379 Negro Leagues games typed `regular` once the
+  `.EVR` files are in; see `research/README.md`, *Regular season only*.
 - **Any other installation loaded by ETL version 1 or earlier** has the wrong
   final in 12.7% of games. Check with `SELECT etl_version FROM schema_meta`;
   `./scripts/update.sh` reloads.
@@ -456,15 +448,6 @@ As of 2026-10-24. Update this list when a problem is fixed or a new one is found
   `pitching_daily.batters_faced`. Remaining work: a game-ordered harness that
   diffs base-runner destinations / pitcher / outs-before against the Chadwick
   oracle at scale, and resolving pinch-runner identity by lineup slot.
-- **Keep the services up during a reload** — a full reload without a schema
-  change truncates every table inside its transaction, so queries wait until
-  it commits. A schema change is worse: the loader drops the schema before
-  loading, so the API and MCP are down for the whole load (`src/etl/run.ts`),
-  and a load that fails or is stopped leaves them on an empty schema until a
-  reload succeeds. Load into a second schema or database instead and swap it in
-  once it has committed, then restart `api`/`mcp` so PostGraphile
-  re-introspects. Queries then read the old data throughout, and a failed load
-  leaves it serving. Keep that restart as short as `update.sh` can make it.
 - **Phase 5** — the web front-end.
 - **Forfeits, suspended games, and the official result** — the loader drops the
   game logs' forfeit and completion fields, so the mart stores the score when

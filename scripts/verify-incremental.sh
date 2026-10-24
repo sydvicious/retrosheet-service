@@ -99,7 +99,7 @@ snapshot() {
 
 echo "==> Full load of A …"
 RETROSHEET_DIR="$VERIFY_DIR/$A" RETROSHEET_VERSION="$VER_A" DATABASE_URL="$VERIFY_DATABASE_URL" \
-  node dist/etl/run.js --recreate > "$VERIFY_DIR/load-A.log" 2>&1
+  node dist/etl/run.js > "$VERIFY_DIR/load-A.log" 2>&1
 tail -1 "$VERIFY_DIR/load-A.log"
 
 echo "==> Change set A → B …"

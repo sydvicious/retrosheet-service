@@ -5,11 +5,13 @@
 // identically on macOS, Linux, and in the loader container.
 //
 // Modes:
-//   default            Full data refresh: ensure the schema exists, then TRUNCATE
-//                      + reload every table inside ONE transaction. A failure
-//                      leaves the old data. TRUNCATE locks every table until
-//                      the commit, so queries wait for the whole load, then see
-//                      the new data; the running API needs no restart.
+//   default            Full load: in ONE transaction, build sql/schema.sql in a
+//                      side schema (<schema>_next), load every table into it,
+//                      and rename it into place (swap.ts). Queries read the old
+//                      data for the whole load and the new data after the
+//                      commit; a failure leaves the old data. Restart the API
+//                      and MCP afterwards (update.sh does) so PostGraphile
+//                      introspects the new tables.
 //   --replace seasons=1987 files=seasons/1909/1909DET.EVA games=DET190904140
 //             rosters=2019:BAL schedules=2019 reference=0 gamelog=1
 //                      Partial reload for a data-only update: in ONE
@@ -25,9 +27,6 @@
 //                      Refused unless the database is a full load by this
 //                      schema and ETL version with a recorded data version.
 //                      Needs RETROSHEET_VERSION (the new data's version).
-//   --recreate         Drop and recreate the schema first (use when the table
-//                      DEFINITIONS in sql/schema.sql changed; the API must be
-//                      restarted afterward to expose structural changes).
 //   --data-version     Load nothing. Print the Retrosheet data version the
 //                      database was loaded from (schema_meta.data_version), or
 //                      an empty line if none is recorded.
@@ -45,16 +44,8 @@
 // Only one load (full or --replace) runs at a time per schema: a second one
 // stops at once with an error instead of waiting on the first one's locks.
 //
-// A recreate is ALSO forced automatically — even in the default hot-refresh mode —
-// when the schema version stamped in the database differs from this code's
-// SCHEMA_VERSION (src/etl/schemaVersion.ts). That makes a plain data refresh safe
-// after a structural schema change: it won't silently load into stale tables. When
-// that happens the API/mcp still need a restart to re-introspect (scripts/update.sh
-// does this).
-//
 // Env:
 //   SEASONS=2023,2024  Limit event loading to these seasons (default: all).
-//   RECREATE=1         Same as --recreate.
 //   RETROSHEET_VERSION Identity of the Retrosheet data being loaded (clone
 //                      commit + game-log hash, from scripts/update.sh). Recorded
 //                      in schema_meta on a full load; compared by --check.
@@ -68,8 +59,9 @@ import { checkStatus, type SchemaMeta } from "./checkStatus.js";
 import { formatDuration } from "./duration.js";
 import {
   parseReplaceArgs, seasonDeleteStatements, seasonGamePredicate, gameDeleteStatements,
-  rosterDeleteStatement, scheduleDeleteStatement, REFERENCE_TABLES, type ReplacePlan,
+  rosterDeleteStatement, scheduleDeleteStatement, referenceDeleteStatements, type ReplacePlan,
 } from "./replace.js";
+import { loadSchemas, prepareStatements, swapStatements, cleanupStatements } from "./swap.js";
 import { join } from "node:path";
 import { readTeamLeagues } from "./gameClass.js";
 import {
@@ -94,48 +86,6 @@ function describeSeasons(root: string): string {
 }
 
 const schemaSqlPath = fileURLToPath(new URL("../../sql/schema.sql", import.meta.url));
-
-const ALL_TABLES = [
-  "people", "teams", "ballparks", "coaches", "ejections", "relatives",
-  "roster", "schedule", "game", "game_info", "lineup_start", "substitution",
-  "comment", "earned_runs", "game_adjustment", "play",
-  "batting_daily", "pitching_daily", "fielding_daily", "game_log",
-];
-
-// Decide whether the database must be dropped + recreated because its stored
-// schema version differs from this code's SCHEMA_VERSION. Returns false for a
-// brand-new (empty) database — there the normal ensure-schema path builds it from
-// scratch and stamps the version.
-async function schemaVersionMismatch(pool: Pool, schema: string): Promise<boolean> {
-  const { rows } = await pool.query(
-    `SELECT to_regclass($1) IS NOT NULL AS has_meta,
-            to_regclass($2) IS NOT NULL AS has_core`,
-    [`${schema}.schema_meta`, `${schema}.people`],
-  );
-  const hasMeta = rows[0]?.has_meta as boolean;
-  const hasCore = rows[0]?.has_core as boolean;
-
-  if (!hasMeta) {
-    if (!hasCore) return false; // fresh, empty DB — nothing to recreate
-    console.warn(
-      "Schema is present but unversioned (built before schema versioning) — " +
-        "forcing full database rebuild",
-    );
-    return true;
-  }
-
-  const dbVersion: number =
-    (await pool.query(`SELECT version FROM ${schema}.schema_meta LIMIT 1`))
-      .rows[0]?.version ?? 0;
-  if (dbVersion !== SCHEMA_VERSION) {
-    console.warn(
-      `Schema version mismatch: database is v${dbVersion}, code is v${SCHEMA_VERSION} — ` +
-        "forcing full database rebuild",
-    );
-    return true;
-  }
-  return false;
-}
 
 // --check: is the database already a full load of this data by this schema and
 // this parser/loader? Reads the schema_meta row and leaves the decision to
@@ -213,10 +163,9 @@ function printCounts(counts: Record<string, number>, started: number): void {
   console.log(`\nDone in ${formatDuration(Date.now() - started)}.`);
 }
 
-// --replace: the partial load. Same transaction discipline as the full load —
+// --replace: the partial load, in place in the live schema. One transaction, so
 // a failure leaves the rows untouched. Rows are deleted rather than truncated,
-// so readers see the old rows until COMMIT; only the reference tables and
-// game_log, truncated when they are reloaded, make queries on them wait.
+// so readers see the old rows until COMMIT.
 async function replaceLoad(
   cfg: ReturnType<typeof loadConfig>,
   plan: ReplacePlan,
@@ -319,7 +268,9 @@ async function replaceLoad(
       if (plan.reference) {
         progress.label = "reference";
         progress.detail = "reloading the reference tables …";
-        await client.query(`TRUNCATE ${REFERENCE_TABLES.join(", ")} RESTART IDENTITY`);
+        for (const stmt of referenceDeleteStatements()) {
+          await client.query(stmt);
+        }
         counts.people = await loadPeople(client, root);
         counts.teams = await loadTeams(client, root);
         counts.ballparks = await loadBallparks(client, root);
@@ -332,7 +283,7 @@ async function replaceLoad(
       if (plan.gamelog) {
         progress.label = "game logs (managers)";
         progress.detail = "reloading game_log …";
-        await client.query("TRUNCATE game_log RESTART IDENTITY");
+        await client.query("DELETE FROM game_log");
         counts.game_log = await loadGameLogs(client, root);
         progress.detail = "";
       }
@@ -385,7 +336,6 @@ async function main(): Promise<void> {
     }
     return;
   }
-  const explicitRecreate = process.argv.includes("--recreate") || process.env.RECREATE === "1";
   const seasonsEnv = process.env.SEASONS?.split(",").map((s) => s.trim()).filter(Boolean);
   const seasons = seasonsEnv && seasonsEnv.length ? new Set(seasonsEnv) : undefined;
   const started = Date.now();
@@ -407,26 +357,7 @@ async function main(): Promise<void> {
   let lock: PoolClient | undefined;
   try {
     lock = await acquireLoadLock(pool, cfg.schema);
-    // Force a full recreate when the code's SCHEMA_VERSION differs from what's
-    // stamped in the DB, even without --recreate. This keeps a plain load (the
-    // fast hot-refresh path) safe after a structural schema change: without it, the
-    // idempotent CREATE ... IF NOT EXISTS schema would leave old table shapes in
-    // place and the reload would load into them silently.
-    const recreate = explicitRecreate || await schemaVersionMismatch(pool, cfg.schema);
-
-    if (recreate) {
-      console.log("Recreating schema …");
-      await pool.query(`DROP SCHEMA IF EXISTS ${cfg.schema} CASCADE`);
-    }
-    console.log("Ensuring schema …");
-    await applySchemaFile(pool, schemaSqlPath);
-    // Stamp the current structural version so a later load can detect a mismatch.
-    await pool.query(
-      `INSERT INTO ${cfg.schema}.schema_meta (singleton, version) VALUES (true, $1)
-         ON CONFLICT (singleton) DO UPDATE SET version = EXCLUDED.version, applied_at = now()`,
-      [SCHEMA_VERSION],
-    );
-    console.log(`Schema ready (version ${SCHEMA_VERSION}). Reloading data …`);
+    const schemas = loadSchemas(cfg.schema);
 
     const counts: Record<string, number> = {};
     const progress: LoadProgress = { plays: 0, label: "preparing", detail: "" };
@@ -434,11 +365,16 @@ async function main(): Promise<void> {
 
     const client = await pool.connect();
     try {
+      // All or nothing until COMMIT, and the live schema untouched until the
+      // swap at the end, so queries read the old data throughout (swap.ts).
       await client.query("BEGIN");
-      await client.query(`SET search_path TO ${cfg.schema}`);
-      // All or nothing until COMMIT. TRUNCATE takes an exclusive lock on every
-      // table, so queries wait from here until the commit.
-      await client.query(`TRUNCATE ${ALL_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
+      for (const stmt of prepareStatements(schemas)) {
+        await client.query(stmt);
+      }
+      await client.query(`SET LOCAL search_path TO ${schemas.next}`);
+      console.log(`Building schema version ${SCHEMA_VERSION} in ${schemas.next} …`);
+      await applySchemaFile(client, schemaSqlPath);
+      await client.query("INSERT INTO schema_meta (version) VALUES ($1)", [SCHEMA_VERSION]);
 
       const root = cfg.retrosheetDir;
       progress.label = "reference/rosters/schedules";
@@ -485,6 +421,14 @@ async function main(): Promise<void> {
         [seasons ? null : dataVersion ?? null, seasons ? null : ETL_VERSION],
       );
 
+      const { rows } = await client.query(
+        "SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = $1) AS live", [schemas.live],
+      );
+      console.log(`Swapping ${schemas.next} in as ${schemas.live} …`);
+      for (const stmt of swapStatements(schemas, rows[0]?.live as boolean)) {
+        await client.query(stmt);
+      }
+
       progress.label = "committing";
       progress.detail = "flushing the transaction …";
       await client.query("COMMIT");
@@ -494,6 +438,13 @@ async function main(): Promise<void> {
     } finally {
       clearInterval(ticker);
       client.release();
+    }
+
+    // Waits for queries still reading the old tables. A failure here leaves
+    // <schema>_old for the next load to drop; the new data is already live.
+    console.log(`Dropping the replaced schema ${schemas.old} …`);
+    for (const stmt of cleanupStatements(schemas)) {
+      await pool.query(stmt);
     }
 
     printCounts(counts, started);

@@ -6,6 +6,7 @@ import {
   seasonGamePredicate,
   seasonDeleteStatements,
   REFERENCE_TABLES,
+  referenceDeleteStatements,
 } from "../../src/etl/replace.js";
 import { battingSql, pitchingSql } from "../../src/etl/daily.js";
 
@@ -74,6 +75,18 @@ describe("seasonDeleteStatements", () => {
 describe("REFERENCE_TABLES", () => {
   it("is the closed set the reference loaders fill, people last so coaches' FK is satisfied on reload order", () => {
     expect(REFERENCE_TABLES).toEqual(["people", "teams", "ballparks", "coaches", "ejections", "relatives"]);
+  });
+});
+
+describe("referenceDeleteStatements", () => {
+  it("empties every reference table with DELETE, so readers keep the old rows until COMMIT", () => {
+    const stmts = referenceDeleteStatements();
+    expect(stmts.map((s) => s.replace(/^DELETE FROM /, "")).sort()).toEqual([...REFERENCE_TABLES].sort());
+    for (const s of stmts) expect(s).not.toMatch(/TRUNCATE/i);
+  });
+  it("deletes coaches before people, whose rows coaches.player_id references", () => {
+    const stmts = referenceDeleteStatements();
+    expect(stmts.indexOf("DELETE FROM coaches")).toBeLessThan(stmts.indexOf("DELETE FROM people"));
   });
 });
 
