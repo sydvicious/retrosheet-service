@@ -175,8 +175,13 @@ the database is out of date). So after a stop, a `docker compose down`, or a new
 checkout with no schema change, this is all it takes:
 
 ```bash
-docker compose up -d db api mcp
+./scripts/restart.sh              # rebuilds the api/mcp images from the working tree first
+./scripts/restart.sh --no-build   # just docker compose up -d db api mcp
 ```
+
+On a Mac it also starts the Docker engine (Colima or Docker Desktop, whichever
+is installed) if it is down. Compose recreates only the containers whose image
+or configuration changed.
 
 The one command that does throw the data away is `docker compose down -v`,
 which removes the volume.
@@ -233,8 +238,8 @@ Both versions live in `src/etl/schemaVersion.ts`.
 - **Neither changed:** no load; the services are just brought up on the new
   images.
 
-A compose-only change (e.g. Postgres settings) needs no script:
-`docker compose up -d db api mcp`.
+A code or compose-only change with no new data needs no reload check:
+`./scripts/restart.sh` (see *Start, stop, and reboots*).
 
 A load prints an elapsed-time heartbeat every few seconds (`… [123s] events
 1994: 3.9M plays loaded`), so you can tell it's alive and spot a stall
